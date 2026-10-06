@@ -5,6 +5,8 @@ FitFindr — command line.
     python app.py ask 'vintage graphic tee under $30, size M'
     python app.py ask                     keep asking until you quit
     python app.py ask --empty-wardrobe    run as a user with nothing saved
+    python app.py ask '...' --remember    use and update style memory (stretch)
+    python app.py ask --forget            clear style memory first
     python app.py listings                browse the data  (Milestone 1)
     python app.py fields                  what fields a listing has
     python app.py examples                queries worth trying, including a dud
@@ -104,12 +106,18 @@ def cmd_examples(args):
     )
 
 
-def _ask_one(query, wardrobe, use_trace):
+def _ask_one(query, wardrobe, use_trace, remember=False):
     from agent import run_agent
     import trace as trace_module
+    import memory
 
     if use_trace:
         trace_module.start_trace()
+
+    if remember:
+        saved = memory.load_memory()
+        wardrobe = {"items": wardrobe["items"] + saved}
+        print(f"(style memory: {len(saved)} saved item(s) added to the wardrobe)")
 
     session = run_agent(query, wardrobe)
 
@@ -118,11 +126,21 @@ def _ask_one(query, wardrobe, use_trace):
         print(f"  {session['error']}")
     else:
         item = session["selected_item"] or {}
-        print(f"  Found:    {item.get('title')} — ${item.get('price')} on {item.get('platform')}")
+        if session.get("selection_note"):
+            print(f"  Note:     {session['selection_note']}")
+        print(f"  Found:    {item.get('title')} — ${item.get('price')} on {item.get('platform')} ({item.get('condition')})")
+        check = session.get("price_check")
+        if check:
+            print(f"  Price:    {_describe_price_check(check)}")
         print()
         print(f"  Outfit:   {session['outfit_suggestion']}")
         print()
         print(f"  Fit card: {session['fit_card']}")
+        if remember:
+            if memory.remember_item(item):
+                print(f"\n  Saved '{item.get('title')}' to style memory ({memory.MEMORY_PATH.relative_to(memory.config.ROOT)}).")
+            else:
+                print(f"\n  '{item.get('title')}' was already in style memory.")
     print()
 
     if use_trace:
@@ -135,6 +153,19 @@ def _ask_one(query, wardrobe, use_trace):
     return session
 
 
+def _describe_price_check(check):
+    if check["comparable_count"] == 0:
+        return "no comparable listings to compare against"
+    text = (
+        f"{check['verdict']} — median ${check['median_price']:.0f} across "
+        f"{check['comparable_count']} similar listings"
+    )
+    if check["cheaper"]:
+        cheapest = check["cheaper"][0]
+        text += f"; cheapest similar: {cheapest['title']} at ${cheapest['price']:.0f}"
+    return text
+
+
 def cmd_ask(args):
     from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
     import generate
@@ -142,10 +173,15 @@ def cmd_ask(args):
     wardrobe = get_empty_wardrobe() if args.empty_wardrobe else get_example_wardrobe()
     if args.empty_wardrobe:
         print("(running with an empty wardrobe)")
+    if args.forget:
+        import memory
+        print(f"(style memory cleared: {memory.clear_memory()} item(s) forgotten)")
+        if not args.query:
+            return
 
     try:
         if args.query:
-            _ask_one(args.query, wardrobe, args.trace)
+            _ask_one(args.query, wardrobe, args.trace, args.remember)
         else:
             print("Ask for something, or press Enter on an empty line to quit.\n")
             while True:
@@ -156,7 +192,7 @@ def cmd_ask(args):
                     break
                 if not query:
                     break
-                _ask_one(query, wardrobe, args.trace)
+                _ask_one(query, wardrobe, args.trace, args.remember)
     finally:
         print(generate.usage())
 
@@ -189,6 +225,12 @@ def build_parser():
         action="store_true",
         help="run as a user with nothing saved — one of unit 4's failure modes",
     )
+    p_ask.add_argument(
+        "--remember",
+        action="store_true",
+        help="style memory: add saved finds to the wardrobe, and save this find",
+    )
+    p_ask.add_argument("--forget", action="store_true", help="clear style memory first")
     p_ask.set_defaults(func=cmd_ask)
 
     return parser

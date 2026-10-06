@@ -17,7 +17,7 @@ import re
 
 import config
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from tools import search_listings, suggest_outfit, create_fit_card, compare_prices
 from generate import ModelUnavailable
 
 
@@ -42,6 +42,8 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "parsed": {},                # description / size / max_price you pulled out of it
         "search_results": [],        # everything search_listings returned
         "selected_item": None,       # the one you chose — goes into suggest_outfit
+        "selection_note": None,      # set when the fair-condition branch picked another item
+        "price_check": None,         # what compare_prices returned
         "wardrobe": wardrobe,        # the user's wardrobe
         "outfit_suggestion": None,   # what suggest_outfit returned
         "fit_card": None,            # what create_fit_card returned
@@ -135,7 +137,23 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 next_step = "select"
 
         elif next_step == "select":
-            session["selected_item"] = session["search_results"][0]
+            results = session["search_results"]
+            # SECOND BRANCH: a fair-condition top match gives way to a
+            # same-category result in better shape, when the search found one.
+            better = _better_condition_alternative(results)
+            if better:
+                session["selected_item"] = better
+                session["selection_note"] = (
+                    f"Top match '{results[0]['title']}' is in fair condition, so I "
+                    f"picked '{better['title']}' ({better['condition']} condition, "
+                    f"also {better['category']}) instead."
+                )
+            else:
+                session["selected_item"] = results[0]
+            next_step = "compare_prices"
+
+        elif next_step == "compare_prices":
+            session["price_check"] = compare_prices(session["selected_item"])
             next_step = "suggest_outfit"
 
         elif next_step == "suggest_outfit":
@@ -151,6 +169,20 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             next_step = "done"
 
     return session
+
+
+def _better_condition_alternative(results: list[dict]) -> dict | None:
+    """
+    If the top result is in fair condition, the first later result in the same
+    category that's good or excellent. Otherwise None — keep the top result.
+    """
+    top = results[0]
+    if top["condition"] != "fair":
+        return None
+    for listing in results[1:]:
+        if listing["category"] == top["category"] and listing["condition"] in ("good", "excellent"):
+            return listing
+    return None
 
 
 # ── query parsing (regex) ─────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ can't tell which layer is lying to you.
     search_listings(description, size, max_price)  → list[dict]
     suggest_outfit(new_item, wardrobe)             → str
     create_fit_card(outfit, new_item)              → str
+    compare_prices(item)                           → dict   (stretch: a fourth tool)
 
 All three are stubs right now. They run and they do nothing — that's the
 starting position and it's deliberate.
@@ -21,6 +22,7 @@ the description has to say what is *in* the list.
 """
 
 import re
+import statistics
 
 import config
 from generate import generate
@@ -271,3 +273,57 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         "Return only the caption."
     )
     return generate(prompt).strip()
+
+
+# ── Tool 4 (stretch): compare_prices ──────────────────────────────────────────
+
+def compare_prices(item: dict) -> dict:
+    """
+    Say whether the selected item is a good price, compared with similar
+    listings: same category, sharing at least one style tag, not the item
+    itself. Doesn't call the model.
+
+    Returns a dict with item_price, comparable_count, median_price, verdict
+    ("below typical" / "about typical" / "above typical", using ±15% of the
+    median) and cheaper (up to 3 comparable listings that cost less, cheapest
+    first). With no comparables: count 0, median None, cheaper [], verdict
+    "no comparables". Never raises.
+    """
+    tags = set(item["style_tags"])
+    comparables = [
+        listing
+        for listing in load_listings()
+        if listing["id"] != item["id"]
+        and listing["category"] == item["category"]
+        and tags & set(listing["style_tags"])
+    ]
+
+    if not comparables:
+        return {
+            "item_price": item["price"],
+            "comparable_count": 0,
+            "median_price": None,
+            "verdict": "no comparables",
+            "cheaper": [],
+        }
+
+    median = statistics.median(listing["price"] for listing in comparables)
+    if item["price"] < median * 0.85:
+        verdict = "below typical"
+    elif item["price"] > median * 1.15:
+        verdict = "above typical"
+    else:
+        verdict = "about typical"
+
+    cheaper = sorted(
+        (listing for listing in comparables if listing["price"] < item["price"]),
+        key=lambda listing: listing["price"],
+    )[:3]
+
+    return {
+        "item_price": item["price"],
+        "comparable_count": len(comparables),
+        "median_price": median,
+        "verdict": verdict,
+        "cheaper": cheaper,
+    }
