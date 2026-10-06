@@ -219,6 +219,66 @@ wrong or unclear and got changed, and who decided what.
   original as `criteria.md` describes, and I'll write my own reasoning when I
   diagnose the results.
 
+---
+
+## Stretch Features
+
+<!-- Declared here, and committed, BEFORE any of the three was built. -->
+
+All three stretch items, declared before building. Each subsection says what I
+plan to build; the **Result** lines are filled in after it's built.
+
+### Stretch 1 — A fourth tool: `compare_prices`
+
+- **What it does:** Checks whether the selected item is a good price by
+  comparing it with similar listings in the data. It doesn't call the model.
+- **Inputs:** `item` (dict) — the selected listing dict.
+- **Returns:** A `dict` with `item_price` (float), `comparable_count` (int,
+  listings in the same `category` that share at least one `style_tag`, not
+  counting the item itself), `median_price` (float or None), `verdict` (str:
+  `"below typical"`, `"about typical"` or `"above typical"`, using ±15% of
+  the median), and `cheaper` (list of up to 3 comparable listing dicts that
+  cost less, cheapest first).
+- **When it has nothing:** If no comparable listings exist,
+  `comparable_count` is 0, `median_price` is None, `cheaper` is `[]`, and
+  `verdict` is `"no comparables"`. It never raises.
+- **Where the loop calls it:** `agent.py::run_agent`, after the item is
+  selected and before `suggest_outfit`. The result goes in
+  `session["price_check"]`.
+
+**Result:** _(filled in after building)_
+
+### Stretch 2 — A second branch: avoid a fair-condition pick
+
+- **Condition:** The top search result has `condition == "fair"`, and another
+  result in `session["search_results"]` is in the **same category** with
+  condition `"good"` or `"excellent"`.
+- **Path when it's true:** Select the first such better-condition listing
+  instead of the top result, and record why in
+  `session["selection_note"]`.
+- **Path when it's false:** Select the top result, as before.
+- **Why:** "Fair" listings in this data have visible wear (fading, pilling).
+  If something similar in better shape matched the same search, that's the
+  better suggestion.
+- **Where it lives:** `agent.py::run_agent`, in the `select` step.
+
+**Result:** _(filled in after building)_
+
+### Stretch 3 — Style memory
+
+- **What it remembers:** With `python app.py ask '...' --remember`, every
+  item the agent successfully finds is saved to `memory/wardrobe.json` as a
+  wardrobe item (same shape as `data/wardrobe_schema.json`).
+- **How it shapes the next run:** On the next `--remember` run, the saved
+  items are added to the wardrobe passed to `suggest_outfit`, so the outfit
+  can name a piece found in an earlier run. `--forget` clears the file.
+- **Why opt-in:** Without the flag nothing is read or written, so
+  `run_eval.py` and my five criteria run against a fixed wardrobe.
+- **Where it lives:** `memory.py` (`load_memory`, `remember_item`,
+  `clear_memory`), used from `app.py`.
+
+**Result:** _(filled in after building)_
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
