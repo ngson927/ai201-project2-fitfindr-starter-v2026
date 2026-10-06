@@ -179,36 +179,45 @@ Obsessed with how this Y2K butterfly baby tee fits with my favorite baggy jeans 
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
+I used Claude Code (in VS Code) for most of this unit. I pasted each
+milestone into it, and it wrote the Tool Inventory spec, the three tools, the
+planning loop, and the draft of criteria 3–5, testing each part from the
+terminal as it went. The two moments below are where something came back
+wrong or unclear and got changed, and who decided what.
+
 **Moment 1**
 
-- *What I asked for:* I gave Claude (Claude Code) my `search_listings` spec
-  from the Tool Inventory, including the whole-word keyword score and the
-  token-based size match, and asked it to implement the tool and test it from
-  the terminal.
-- *What came back:* A version that matched the spec: `[]` for
-  `designer ballgown, size XXS, under $5`, `M` matching `S/M` but not `XL`, and
-  `8` matching `US 8` but not `US 8.5`. But `graphic tee` under $30 also returned
-  **Low-Rise Cargo Pants**, because that listing's description contains the
-  word "tee". Whole-word matching avoided the `street` problem but not this one.
-- *What I changed:* I didn't change the code yet. The spec says one point per
-  matching word, and that is what the tool does, so the cargo pants are a flaw
-  in my spec, not a bug in the code. I left it in and noted it as a likely
-  cause if criterion 1 or the fit card criterion misses in unit 4. Weighting
-  title and `style_tags` above description is the fix I'd try first.
+- *What I asked for:* I pasted Milestone 4 and asked Claude to build the three
+  tools from the `search_listings` spec in the Tool Inventory (one point per
+  whole-word keyword match, token-based size match) and test each one.
+- *What came back:* A tool that followed the spec: `[]` for
+  `designer ballgown, size XXS, under $5`, `M` matching `S/M` but not `XL`,
+  `8` matching `US 8` but not `US 8.5`. But `graphic tee` under $30 also
+  returned **Low-Rise Cargo Pants**, because that listing's description
+  contains the word "tee". Claude pointed this out after the test.
+- *What I changed:* Nothing in the code yet. Claude's reasoning, which I agree
+  with, is that the tool does what the spec says, so this is a weakness in the
+  spec (every field scores the same), not a bug. It's left in on purpose as
+  the first thing to check if criterion 1 or 4 misses in unit 4. The fix to
+  try then is weighting `title` and `style_tags` above `description`.
 
 **Moment 2**
 
-- *What I asked for:* Help drafting acceptance criteria 3–5, then checking
-  each one with the question "could someone test this from the sentence alone?"
-- *What came back:* The first draft of criterion 4 (fit card) had a condition
-  "(c) names no brand when the item's brand is None." Checking it showed
-  nobody could score that without judgement: a caption can mention a brand-like
-  word without it being a brand.
-- *What I changed:* Condition (c) became "has a first sentence that no other
-  card in the five starts with", which can be checked by comparing five
-  strings, and the "why" was updated to match. I also tied criterion 5 (price
-  ceiling) to five exact phrasings so that it tests my regex parser rather than
-  the price filter alone, since the filter can't fail on its own.
+- *What I asked for:* I asked Claude to write criteria 3–5 for me. The
+  milestone says not to have a model write criteria, only to have it attack
+  them. I skipped that advice, so these criteria are Claude's drafts, which I
+  read and accepted rather than wrote.
+- *What came back:* The first draft of criterion 4 (fit card) included
+  "(c) names no brand when the item's brand is None." When Claude re-read it
+  against the question "could someone check this without asking what I
+  meant?", it didn't pass: deciding whether a word in a caption is a brand
+  takes judgement.
+- *What I changed:* Claude replaced (c) with "has a first sentence that no
+  other card in the five starts with", which can be checked by comparing five
+  strings, and updated the reason to match. What I take from this for unit 4:
+  if a criterion turns out to be unmeasurable, I'll revise it underneath the
+  original as `criteria.md` describes, and I'll write my own reasoning when I
+  diagnose the results.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
