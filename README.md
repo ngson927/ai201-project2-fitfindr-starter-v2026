@@ -105,11 +105,13 @@ to change: raise the price limit, drop the size, or use broader words.
 
 **Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that says what the user could change (raise the price ceiling, drop the size, or use fewer/different keywords), and return the session without calling `suggest_outfit` or `create_fit_card`. Otherwise, take the first result as `session["selected_item"]` and go to `suggest_outfit`, then `create_fit_card`.
 
+**Second branch (stretch):** In the `select` step, if the first result is in `fair` condition and a later result in the same category is `good` or `excellent`, select that one instead and explain why in `session["selection_note"]`. Otherwise select the first result. See Stretch 2 below.
+
 **Where it lives:** `agent.py::run_agent`
 
 **How the query is parsed:** Regex, in `agent.py::parse_query`. A price pattern catches `under/below/less than/max/up to $N` and `$N or less`; a size pattern catches `size X` / `in size X`. Each match is cut out of the text, filler words (`looking`, `for`, `a`, …) are dropped, and what's left is the description.
 
-**What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → [branch: empty sets `error` and stops] → `selected_item` (first result) → `outfit_suggestion` → `fit_card`. Each step reads its inputs back out of the session, not from a local variable. The loop is a `while` that picks `next_step` from what the last step left in the session, calling `trace.check_iterations` on every pass.
+**What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → [branch: empty sets `error` and stops] → `selected_item` (first result, or a better-condition one — second branch) → `price_check` (from `compare_prices`) → `outfit_suggestion` → `fit_card`. Each step reads its inputs back out of the session, not from a local variable. The loop is a `while` that picks `next_step` from what the last step left in the session, calling `trace.check_iterations` on every pass.
 
 ---
 
@@ -125,7 +127,8 @@ to change: raise the price limit, drop the size, or use broader words.
 ```
 $ python app.py ask 'vintage graphic tee under $30'
 
-  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop (excellent)
+  Price:    below typical — median $22 across 14 similar listings; cheapest similar: Mesh Long-Sleeve Top — Black at $15
 
   Outfit:   Outfit one: Pair the Y2K Baby Tee — Butterfly Print with your Baggy straight-leg jeans, dark wash. Layer the vintage black denim jacket on top and finish with the chunky white sneakers. The fitted baby tee balances the loose jeans, and the jacket ties the retro streetwear vibe together.
 
@@ -246,7 +249,31 @@ plan to build; the **Result** lines are filled in after it's built.
   selected and before `suggest_outfit`. The result goes in
   `session["price_check"]`.
 
-**Result:** _(filled in after building)_
+**Result:** Built as declared: `tools.py::compare_prices`, called from `agent.py::run_agent` in the `compare_prices` step on every run that gets past the search. `app.py` prints the result on the `Price:` line. What it changed: every answer now says whether the find is a good price. Run where the agent called it (cache off):
+
+```
+$ python app.py ask '90s track jacket in size M'
+
+  Found:    90s Track Jacket — Navy/White Stripe — $45.0 on poshmark (excellent)
+  Price:    about typical — median $41 across 6 similar listings; cheapest similar: Denim Vest — Medium Wash, Studded at $27
+
+  Outfit:   Outfit one: Pair the 90s Track Jacket — Navy/White Stripe with the White ribbed tank top, Baggy straight-leg jeans, dark wash, and Chunky white sneakers. 
+This look leans into sporty 90s streetwear, where the fitted white tank balances the relaxed jacket and baggy denim while the sneakers tie the athletic vibe together.
+
+Outfit two: Style the 90s Track Jacket — Navy/White Stripe over the White ribbed tank top with the Wide-leg khaki trousers and Chunky white sneakers. 
+This outfit mixes athletic retro outerwear with tailored earth-toned trousers for a modern, effortless high-low streetwear aesthetic.
+
+  Fit card: Still obsessed with how this vintage Champion track jacket turned out, especially since I managed to score it for just $45 on poshmark. It brings the ultimate 90s streetwear energy whether I'm dressing it down with baggy denim or leaning into that high-low mix with tailored trousers. Talk about a thrift win.
+
+2 model calls this session, 674 prompt + 200 output tokens
+```
+
+Tested on its own:
+
+```
+$ python -c "from tools import compare_prices; from utils.data_loader import load_listings; c = compare_prices(load_listings()[1]); print({**c, 'cheaper': [(x['title'], x['price']) for x in c['cheaper']]})"
+{'item_price': 18.0, 'comparable_count': 14, 'median_price': 21.5, 'verdict': 'below typical', 'cheaper': [('Mesh Long-Sleeve Top — Black', 15.0), ('Henley Long Sleeve — Washed Burgundy', 16.0), ('Tie-Dye Long Sleeve — Pastel', 17.0)]}
+```
 
 ### Stretch 2 — A second branch: avoid a fair-condition pick
 
@@ -262,7 +289,27 @@ plan to build; the **Result** lines are filled in after it's built.
   better suggestion.
 - **Where it lives:** `agent.py::run_agent`, in the `select` step.
 
-**Result:** _(filled in after building)_
+**Result:** Built as declared, in `agent.py::run_agent` (`select` step) with the check in `agent.py::_better_condition_alternative`. Run log where the branch was taken: the top match for `cargo pants` is the fair-condition Low-Rise Cargo Pants, so the agent picked the good-condition corduroys instead (cache off):
+
+```
+$ python app.py ask 'cargo pants under $40'
+
+  Note:     Top match 'Low-Rise Cargo Pants — Khaki' is in fair condition, so I picked 'Corduroy Wide-Leg Pants — Rust' (good condition, also bottoms) instead.
+  Found:    Corduroy Wide-Leg Pants — Rust — $32.0 on depop (good)
+  Price:    about typical — median $30 across 7 similar listings; cheapest similar: High-Waisted Denim Shorts — Cutoff at $24
+
+  Outfit:   Outfit 1: Pair the Corduroy Wide-Leg Pants — Rust with the white ribbed tank top tucked in, add the brown leather belt, and layer the oversized grey crewneck sweatshirt on top. Finish with the chunky white sneakers. 
+Why it works: The cropped waist definition balances the slouchy sweatshirt while the earthy tones and textures lean into your vintage cottagecore aesthetic.
+
+Outfit 2: Style the Corduroy Wide-Leg Pants — Rust with the white ribbed tank top, secure with the brown leather belt, and top with the vintage black denim jacket. Complete the look with the black combat boots.
+Why it works: The rich rust shade grounds the edgy black outerwear and boots for a balanced, retro-inspired mix.
+
+  Fit card: Scored these vintage rust corduroy wide-leg pants on depop for just $32 and I am never taking them off. They bring the ultimate 70s earth-tone cottagecore energy to my wardrobe. Can't decide if I love them more with a cozy oversized crewneck or styled edgy with a black denim jacket and boots!
+
+2 model calls this session, 684 prompt + 219 output tokens
+```
+
+What it changed, including a weakness: "same category" is coarse. For `graphic hoodie` the fair-condition hoodie gets swapped for the excellent-condition Y2K Baby Tee, because both are `tops`. That's the rule I declared, so I've left it, but requiring a shared `style_tag` or keyword would be a tighter rule to try. The query in my criteria (`vintage graphic tee under $30`) tops out with an excellent-condition item, so this branch doesn't change criterion 3.
 
 ### Stretch 3 — Style memory
 
@@ -277,7 +324,50 @@ plan to build; the **Result** lines are filled in after it's built.
 - **Where it lives:** `memory.py` (`load_memory`, `remember_item`,
   `clear_memory`), used from `app.py`.
 
-**Result:** _(filled in after building)_
+**Result:** Built as declared: `memory.py` plus `--remember` / `--forget` in `app.py`. `memory/` is in `.gitignore` because it's one user's data. Two runs with an **empty** wardrobe, so anything the second outfit names from the user's closet can only have come from memory. The first run saved the Y2K Baby Tee; the second run's outfit is built around it (cache off):
+
+```
+$ python app.py ask --forget
+(style memory cleared: 0 item(s) forgotten)
+
+$ python app.py ask 'vintage graphic tee under $30' --empty-wardrobe --remember
+(running with an empty wardrobe)
+(style memory: 0 saved item(s) added to the wardrobe)
+
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop (excellent)
+  Price:    below typical — median $22 across 14 similar listings; cheapest similar: Mesh Long-Sleeve Top — Black at $15
+
+  Outfit:   Grab this Y2K baby tee—it is a total steal for eighteen bucks. 
+
+For a classic noughties look, pair it with low-rise baggy cargo pants and chunky platform sandals. The voluminous bottoms balance the tight crop of the shirt for that iconic off-duty pop star silhouette. 
+
+Alternatively, lean into the cottagecore crossover by styling it under a denim overall dress with retro sneakers. The rugged denim tones down the sweetness of the pink butterfly graphic while keeping the nostalgic vibe intact.
+
+  Fit card: scored this y2k baby tee for just $18 on depop and i’m obsessed with the butterfly print. it gives total noughties pop star off-duty energy when paired with low-rise cargo pants. such a lucky thrift find!
+
+  Saved 'Y2K Baby Tee — Butterfly Print' to style memory (memory/wardrobe.json).
+
+2 model calls this session, 416 prompt + 152 output tokens
+
+$ python app.py ask 'denim jacket under $50' --empty-wardrobe --remember
+(running with an empty wardrobe)
+(style memory: 1 saved item(s) added to the wardrobe)
+
+  Found:    Denim Jacket — Light Wash, Cropped — $42.0 on poshmark (excellent)
+  Price:    about typical — median $40 across 7 similar listings; cheapest similar: Denim Vest — Medium Wash, Studded at $27
+
+  Outfit:   Outfit One: Throw the Denim Jacket — Light Wash, Cropped right over the Y2K Baby Tee — Butterfly Print. 
+
+Why they work together: The structured, light-wash vintage denim balances the playful Y2K energy of the baby tee for an effortless, throwback streetwear look.
+
+  Fit card: Score this vintage Wrangler jacket on Poshmark for just $42 and honestly, it’s the ultimate Y2K throw-on-and-go piece. I layered it right over my favorite butterfly print baby tee, and the light wash denim gives it that perfectly worn-in streetwear edge. It’s giving effortless 90s nostalgia in the best way possible.
+
+  Saved 'Denim Jacket — Light Wash, Cropped' to style memory (memory/wardrobe.json).
+
+2 model calls this session, 408 prompt + 136 output tokens
+```
+
+What it changed: on the second run `suggest_outfit` received a wardrobe with one item instead of none, so it switched from general advice to a specific pairing ("over the Y2K Baby Tee — Butterfly Print"), and the fit card picked that up too.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
