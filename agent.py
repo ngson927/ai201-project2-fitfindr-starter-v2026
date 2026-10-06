@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -107,9 +109,124 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # Each pass picks the next step from what the last one left in the
+    # session. Every tool reads its inputs back out of the session, never
+    # from a local variable, so the state stays visible.
+    next_step = "parse"
+    count = 0
+    while next_step != "done":
+        count += 1
+        trace.check_iterations(count)
+
+        if next_step == "parse":
+            session["parsed"] = parse_query(session["query"])
+            next_step = "search"
+
+        elif next_step == "search":
+            parsed = session["parsed"]
+            session["search_results"] = search_listings(
+                parsed["description"], parsed["size"], parsed["max_price"]
+            )
+            # THE BRANCH: nothing found means stop here, before any model call.
+            if not session["search_results"]:
+                session["error"] = _no_results_message(parsed)
+                next_step = "done"
+            else:
+                next_step = "select"
+
+        elif next_step == "select":
+            session["selected_item"] = session["search_results"][0]
+            next_step = "suggest_outfit"
+
+        elif next_step == "suggest_outfit":
+            session["outfit_suggestion"] = suggest_outfit(
+                session["selected_item"], session["wardrobe"]
+            )
+            next_step = "create_fit_card"
+
+        elif next_step == "create_fit_card":
+            session["fit_card"] = create_fit_card(
+                session["outfit_suggestion"], session["selected_item"]
+            )
+            next_step = "done"
+
     return session
+
+
+# ── query parsing (regex) ─────────────────────────────────────────────────────
+
+# "under $30", "below $30", "less than 30 dollars", "max $30", "up to $30"
+_PRICE_BEFORE = re.compile(
+    r"\b(?:under|below|less than|max(?:imum)?|up to|at most)\s*\$?\s*(\d+(?:\.\d+)?)(?:\s*dollars?)?",
+    re.IGNORECASE,
+)
+# "$30 or less", "30 dollars max", "$30 max"
+_PRICE_AFTER = re.compile(
+    r"\$?\s*(\d+(?:\.\d+)?)\s*(?:dollars?\s*)?(?:or less|or under|max(?:imum)?)\b",
+    re.IGNORECASE,
+)
+# "size M", "in size XXS", "size 8.5", "size W30"
+_SIZE = re.compile(r"\b(?:in\s+)?size\s+([a-z0-9./]+)", re.IGNORECASE)
+
+# Words that say how someone is asking, not what they're asking for.
+_FILLER = {
+    "a", "an", "the", "i", "im", "i'm", "me", "my", "for", "in", "of", "and",
+    "or", "with", "want", "need", "looking", "find", "show", "some",
+    "something", "any", "please", "get", "buy", "to", "is", "that",
+}
+
+
+def parse_query(query: str) -> dict:
+    """
+    Pull description, size and max_price out of a plain-language query.
+
+    Each part that's found is cut out of the text, so "under $30" doesn't end
+    up as search keywords. Whatever is left, minus filler words, is the
+    description.
+    """
+    text = query
+    max_price = None
+    for pattern in (_PRICE_BEFORE, _PRICE_AFTER):
+        match = pattern.search(text)
+        if match:
+            max_price = float(match.group(1))
+            text = text[: match.start()] + " " + text[match.end():]
+            break
+
+    size = None
+    match = _SIZE.search(text)
+    if match:
+        size = match.group(1)
+        text = text[: match.start()] + " " + text[match.end():]
+
+    words = re.findall(r"[a-z0-9'-]+", text.lower())
+    description = " ".join(w for w in words if w not in _FILLER)
+
+    return {"description": description, "size": size, "max_price": max_price}
+
+
+def _no_results_message(parsed: dict) -> str:
+    """Say what was searched and what the user could change — not just 'No results'."""
+    if not parsed["description"]:
+        return (
+            "I couldn't tell what kind of item you want. Name the piece, "
+            "e.g. 'graphic tee' or 'denim jacket'."
+        )
+
+    searched = f"'{parsed['description']}'"
+    if parsed["size"]:
+        searched += f" in size {parsed['size']}"
+    if parsed["max_price"] is not None:
+        searched += f" under ${parsed['max_price']:.0f}"
+
+    changes = []
+    if parsed["max_price"] is not None:
+        changes.append(f"raise your price limit above ${parsed['max_price']:.0f}")
+    if parsed["size"]:
+        changes.append(f"drop the size {parsed['size']}")
+    changes.append("use fewer or more general words (e.g. 'dress' instead of the full phrase)")
+
+    return f"Nothing matched {searched}. Try one of these: " + "; ".join(changes) + "."
 
 
 # ── running it directly ───────────────────────────────────────────────────────

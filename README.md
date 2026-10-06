@@ -99,9 +99,9 @@
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, in `agent.py::parse_query`. A price pattern catches `under/below/less than/max/up to $N` and `$N or less`; a size pattern catches `size X` / `in size X`. Each match is cut out of the text, filler words (`looking`, `for`, `a`, …) are dropped, and what's left is the description.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → [branch: empty sets `error` and stops] → `selected_item` (first result) → `outfit_suggestion` → `fit_card`. Each step reads its inputs back out of the session, not from a local variable. The loop is a `while` that picks `next_step` from what the last step left in the session, calling `trace.check_iterations` on every pass.
 
 ---
 
@@ -115,8 +115,17 @@
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Outfit one: Pair the Y2K Baby Tee — Butterfly Print with your Baggy straight-leg jeans, dark wash. Layer the vintage black denim jacket on top and finish with the chunky white sneakers. The fitted baby tee balances the loose jeans, and the jacket ties the retro streetwear vibe together.
+
+Outfit two: Combine the Y2K Baby Tee — Butterfly Print with your wide-leg khaki trousers and the brown leather belt. Step into your black combat boots to complete the look. The pastel butterfly print pops against the earthy khaki, creating a playful contrast between sweet Y2K style and grunge footwear.
+
+  Fit card: scored this adorable little butterfly baby tee on depop for only $18 and I am so obsessed with how versatile it is. styling it with baggy denim gives me the ultimate retro streetwear energy, while pairing it with earth-toned trousers and chunky boots leans right into that sweet-meets-grunge aesthetic. honestly the best thrifted find for putting together effortless everyday looks!
+
+0 model calls this session, 2 served from cache
 ```
 
 **The three tools, tested one at a time**
