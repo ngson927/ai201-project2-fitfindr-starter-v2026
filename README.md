@@ -41,6 +41,14 @@
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
 
+FitFindr takes a plain-language request for a secondhand piece, like
+`vintage graphic tee under $30` or `90s track jacket in size M`, and searches
+40 thrift listings from Depop, thredUp and Poshmark for the best match within
+the size and price limit. For the top match it suggests one or two outfits
+using pieces the user already owns (or general styling advice if their
+wardrobe is empty), then writes a short social-media caption about the find.
+If nothing matches, it stops before calling the model and tells the user what
+to change: raise the price limit, drop the size, or use broader words.
 
 
 ---
@@ -173,15 +181,34 @@ Obsessed with how this Y2K butterfly baby tee fits with my favorite baggy jeans 
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude (Claude Code) my `search_listings` spec
+  from the Tool Inventory, including the whole-word keyword score and the
+  token-based size match, and asked it to implement the tool and test it from
+  the terminal.
+- *What came back:* A version that matched the spec: `[]` for
+  `designer ballgown, size XXS, under $5`, `M` matching `S/M` but not `XL`, and
+  `8` matching `US 8` but not `US 8.5`. But `graphic tee` under $30 also returned
+  **Low-Rise Cargo Pants**, because that listing's description contains the
+  word "tee". Whole-word matching avoided the `street` problem but not this one.
+- *What I changed:* I didn't change the code yet. The spec says one point per
+  matching word, and that is what the tool does, so the cargo pants are a flaw
+  in my spec, not a bug in the code. I left it in and noted it as a likely
+  cause if criterion 1 or the fit card criterion misses in unit 4. Weighting
+  title and `style_tags` above description is the fix I'd try first.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* Help drafting acceptance criteria 3–5, then checking
+  each one with the question "could someone test this from the sentence alone?"
+- *What came back:* The first draft of criterion 4 (fit card) had a condition
+  "(c) names no brand when the item's brand is None." Checking it showed
+  nobody could score that without judgement: a caption can mention a brand-like
+  word without it being a brand.
+- *What I changed:* Condition (c) became "has a first sentence that no other
+  card in the five starts with", which can be checked by comparing five
+  strings, and the "why" was updated to match. I also tied criterion 5 (price
+  ceiling) to five exact phrasings so that it tests my regex parser rather than
+  the price filter alone, since the filter can't fail on its own.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
