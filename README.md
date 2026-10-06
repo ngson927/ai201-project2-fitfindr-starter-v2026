@@ -121,19 +121,34 @@ $ python app.py ask '...'
 
 **The three tools, tested one at a time**
 
-```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+`search_listings` — a match, then the empty case:
 
 ```
+$ python -c "from tools import search_listings; print([(r['title'], r['price'], r['size'], r['platform']) for r in search_listings('graphic tee', max_price=30)])"
+[('Y2K Baby Tee — Butterfly Print', 18.0, 'S/M', 'depop'), ('Graphic Tee — 2003 Tour Bootleg Style', 24.0, 'L', 'depop'), ('Mesh Long-Sleeve Top — Black', 15.0, 'S/M', 'depop'), ('Vintage Band Tee — Faded Grey', 19.0, 'L', 'depop'), ('Low-Rise Cargo Pants — Khaki', 27.0, 'W29', 'poshmark'), ('Vintage Graphic Hoodie — Faded Black', 26.0, 'L', 'depop')]
+
+$ python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
+[]
+```
+
+`suggest_outfit`:
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Outfit One
+Pair the Vintage Levi's 501 Jeans — Medium Wash with the White ribbed tank top and the Vintage black denim jacket, finished with Chunky white sneakers. 
+This look plays on classic denim-on-denim styling while the fitted tank balances the straight-leg cut for an effortless everyday streetwear vibe.
 
+Outfit Two
+Style the Vintage Levi's 501 Jeans — Medium Wash with the Oversized grey crewneck sweatshirt and the Black combat boots, pulling it together using the Brown leather belt. 
+The mid-wash denim grounds the massive proportions of the grey sweatshirt, and the belt adds a polished vintage touch that anchors the grunge boots.
 ```
 
-```
-$ python -c "from tools import create_fit_card; ..."
+`create_fit_card`:
 
+```
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[1]))"
+Obsessed with how this Y2K butterfly baby tee fits with my favorite baggy jeans and white sneakers. Scored it for just $18 on depop and it brings the ultimate sweet, nostalgic cottagecore energy. Definitely my new go-to look for sunny weekend coffee runs!
 ```
 
 ---
