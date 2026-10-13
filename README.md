@@ -399,6 +399,34 @@ Why they work together: The structured, light-wash vintage denim balances the pl
 
 What it changed: on the second run `suggest_outfit` received a wardrobe with one item instead of none, so it switched from general advice to a specific pairing ("over the Y2K Baby Tee — Butterfly Print"), and the fit card picked that up too.
 
+### Unit 4 stretch features
+
+<!-- Declared here, and committed, BEFORE any of the three was built. -->
+
+Declared after the unit 4 write-up and before building any of them. They're built in this order, so that each run log changes one thing at a time. The **Result** lines are filled in after each is built.
+
+#### Stretch 4: A second measured improvement, the fit card's borrowed opening
+
+**Plan:** this is item 1 of What's Still Broken. After the first prompt change, 9 of the 15 graphic-tee cards opened with "Balancing…", copied from the "balances the loose jeans" line that every outfit suggestion contains. The one change is to the opening instruction in the `tools.py::create_fit_card` prompt. Instead of "something specific from how it's being styled above", it will ask for one concrete detail (a specific piece, colour or occasion) described in the model's own words, without reusing phrases from the styling notes. Nothing else changes.
+
+**How it will be measured:** a third full run, `python run_eval.py --label after2`, logged in the same table format. Criterion 4 already passes 5/5, so that table can't show this change working. The measure, declared now and before the run: across the 15 graphic-tee cards (criteria 1, 3 and 4), **the most common first word opens at most 5 of the 15** (it was 9 of 15 after the first change). Also, all five rows must stay MET. If the count doesn't drop, or a row drops, I'll report that it didn't help.
+
+**Result:** _(filled in after the run)_
+
+#### Stretch 5: A second tool on MCP, `compare_prices`
+
+**Plan:** register `compare_prices` on the server in `mcp_server.py`, next to `search_listings`, with a description and typed input (`item: dict`, one listing dict). The `compare_prices` step in `agent.py::run_agent` will call it through `mcp_client.call_tool`. The trace step will be named `compare_prices (via MCP)`. Proof: `python mcp_client.py` lists both tools, direct and MCP returns compare equal for the same items, and a `--trace` run shows both MCP calls.
+
+**Result:** _(filled in after it's built)_
+
+#### Stretch 6: Retry with looser constraints
+
+**Plan:** in the `search` step of `agent.py::run_agent`, if the search returns `[]` and the query had a size, search **once** more with the same description and price but `size=None`. The trace gets a separate step, `search_listings (via MCP) — retry without size XL`. If the retry finds something, the loop carries on and `session["selection_note"]` says the size filter was dropped. If it finds nothing, the run stops with the normal empty-search message, which then also says the retry without the size found nothing. A query with no size gets no retry. Price and keywords are never loosened.
+
+**How it will be shown:** a diagnostic scenario, `graphic tee size XL under $60`. With the size it matches nothing; without it, 6 listings. It runs in a final full run log, together with criterion 2's impossible query, which must still stop before `suggest_outfit` (nothing is under $5 even without the size).
+
+**Result:** _(filled in after it's built)_
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
