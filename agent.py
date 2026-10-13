@@ -18,7 +18,7 @@ import re
 import config
 import trace
 from tools import suggest_outfit, create_fit_card, compare_prices
-from mcp_client import call_tool
+from mcp_client import call_tool, MCPError
 from generate import ModelUnavailable
 
 
@@ -117,60 +117,101 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     # from a local variable, so the state stays visible.
     next_step = "parse"
     count = 0
-    while next_step != "done":
-        count += 1
-        trace.check_iterations(count)
+    try:
+        while next_step != "done":
+            count += 1
+            trace.check_iterations(count)
 
-        if next_step == "parse":
-            session["parsed"] = parse_query(session["query"])
-            next_step = "search"
+            if next_step == "parse":
+                session["parsed"] = parse_query(session["query"])
+                trace.step("parse_query", inputs=session["query"], returned=str(session["parsed"]))
+                next_step = "search"
 
-        elif next_step == "search":
-            parsed = session["parsed"]
-            # search_listings runs on the MCP server (mcp_server.py), not in-process.
-            session["search_results"] = call_tool("search_listings", {
-                "description": parsed["description"],
-                "size": parsed["size"],
-                "max_price": parsed["max_price"],
-            })
-            # THE BRANCH: nothing found means stop here, before any model call.
-            if not session["search_results"]:
-                session["error"] = _no_results_message(parsed)
-                next_step = "done"
-            else:
-                next_step = "select"
+            elif next_step == "search":
+                parsed = session["parsed"]
+                # search_listings runs on the MCP server (mcp_server.py), not in-process.
+                session["search_results"] = call_tool("search_listings", {
+                    "description": parsed["description"],
+                    "size": parsed["size"],
+                    "max_price": parsed["max_price"],
+                })
+                # THE BRANCH: nothing found means stop here, before any model call.
+                if not session["search_results"]:
+                    session["error"] = _no_results_message(parsed)
+                    next_step = "done"
+                else:
+                    next_step = "select"
+                trace.step("search_listings (via MCP)", inputs=str(parsed),
+                           returned=session["search_results"],
+                           note="branch: empty, stopping" if next_step == "done" else "")
 
-        elif next_step == "select":
-            results = session["search_results"]
-            # SECOND BRANCH: a fair-condition top match gives way to a
-            # same-category result in better shape, when the search found one.
-            better = _better_condition_alternative(results)
-            if better:
-                session["selected_item"] = better
-                session["selection_note"] = (
-                    f"Top match '{results[0]['title']}' is in fair condition, so I "
-                    f"picked '{better['title']}' ({better['condition']} condition, "
-                    f"also {better['category']}) instead."
+            elif next_step == "select":
+                results = session["search_results"]
+                # SECOND BRANCH: a fair-condition top match gives way to a
+                # same-category result in better shape, when the search found one.
+                better = _better_condition_alternative(results)
+                if better:
+                    session["selected_item"] = better
+                    session["selection_note"] = (
+                        f"Top match '{results[0]['title']}' is in fair condition, so I "
+                        f"picked '{better['title']}' ({better['condition']} condition, "
+                        f"also {better['category']}) instead."
+                    )
+                else:
+                    session["selected_item"] = results[0]
+                trace.step("select", inputs=f"{len(results)} results",
+                           returned=session["selected_item"],
+                           note="branch: fair-condition top match swapped" if better
+                           else "first result")
+                next_step = "compare_prices"
+
+            elif next_step == "compare_prices":
+                session["price_check"] = compare_prices(session["selected_item"])
+                check = session["price_check"]
+                trace.step("compare_prices", inputs=session["selected_item"],
+                           returned=f"{check['verdict']}, median ${check['median_price']} "
+                                    f"across {check['comparable_count']} comparable"
+                           if check["comparable_count"] else "no comparable listings")
+                next_step = "suggest_outfit"
+
+            elif next_step == "suggest_outfit":
+                session["outfit_suggestion"] = suggest_outfit(
+                    session["selected_item"], session["wardrobe"]
                 )
-            else:
-                session["selected_item"] = results[0]
-            next_step = "compare_prices"
+                trace.step("suggest_outfit",
+                           inputs=f"{session['selected_item']['title']} + "
+                                  f"{len(session['wardrobe']['items'])} wardrobe items",
+                           returned=session["outfit_suggestion"])
+                next_step = "create_fit_card"
 
-        elif next_step == "compare_prices":
-            session["price_check"] = compare_prices(session["selected_item"])
-            next_step = "suggest_outfit"
+            elif next_step == "create_fit_card":
+                session["fit_card"] = create_fit_card(
+                    session["outfit_suggestion"], session["selected_item"]
+                )
+                trace.step("create_fit_card",
+                           inputs=f"outfit ({len(session['outfit_suggestion'])} chars) + "
+                                  f"{session['selected_item']['title']}",
+                           returned=session["fit_card"])
+                next_step = "done"
 
-        elif next_step == "suggest_outfit":
-            session["outfit_suggestion"] = suggest_outfit(
-                session["selected_item"], session["wardrobe"]
-            )
-            next_step = "create_fit_card"
-
-        elif next_step == "create_fit_card":
-            session["fit_card"] = create_fit_card(
-                session["outfit_suggestion"], session["selected_item"]
-            )
-            next_step = "done"
+    # Failures end the run with a message in session["error"], the same way the
+    # empty search does, instead of escaping as a stack trace.
+    except ModelUnavailable as exc:
+        found = session["selected_item"]
+        session["error"] = (
+            f"The model couldn't be reached during {next_step}, so there's no "
+            f"outfit or fit card this time. {exc}"
+            + (f" (The search itself worked: it found '{found['title']}' for "
+               f"${found['price']:.0f} on {found['platform']}.)" if found else "")
+        )
+        trace.step(next_step, note="failed: ModelUnavailable, stopping")
+    except MCPError as exc:
+        session["error"] = (
+            f"The listing search couldn't run, because the MCP server for "
+            f"search_listings didn't answer. Run `python mcp_server.py` on its own "
+            f"to see why, then try again. Details: {exc}"
+        )
+        trace.step(next_step, note="failed: MCPError, stopping")
 
     return session
 

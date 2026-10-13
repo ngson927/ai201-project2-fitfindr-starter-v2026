@@ -448,24 +448,99 @@ that produced it:
      the same length, your branch isn't working — and this is the fastest way
      anyone will ever find that out. -->
 
-**Happy path**
+**Happy path** — `python app.py ask 'vintage graphic tee under $30, size M' --trace`
 
 ```
-
+[1] parse_query
+      in:  vintage graphic tee under $30, size M
+      out: {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Mesh Long-Sleeve Top — Black, 90s Silk Slip Dress — Floral, Midi Length … +7 more
+[3] select
+      in:  10 results
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    first result
+[4] compare_prices
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: below typical, median $21.5 across 14 comparable
+[5] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print + 10 wardrobe items
+      out: Outfit one: Pair the Y2K Baby Tee — Butterfly Print with your Baggy straight-leg jeans, dark wash. Layer the v…
+[6] create_fit_card
+      in:  outfit (592 chars) + Y2K Baby Tee — Butterfly Print
+      out: scored this adorable little butterfly baby tee on depop for only $18 and I am so obsessed with how versatile i…
 ```
 
-**Empty search**
+(This query had been run before, so both model calls were served from the build cache. The steps and their order are the same either way.)
+
+**Empty search** — `python app.py ask 'sequined astronaut ballgown size XXS under $5' --trace`
 
 ```
-
+[1] parse_query
+      in:  sequined astronaut ballgown size XXS under $5
+      out: {'description': 'sequined astronaut ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'sequined astronaut ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping
 ```
 
-**On the MCP move:** <!-- what changed in your code, and whether anything
-behaved differently afterwards. If the rewire didn't work, say exactly where it
-broke — the error text and the last thing that worked. That earns the point in
-full. -->
+The empty run stops after two steps and makes 0 model calls. The happy path runs all six steps.
 
+**On the MCP move:** `search_listings` is registered on a FastMCP server in `mcp_server.py`, under the same name and with the same typed inputs as in the Tool Inventory (`description: str`, `size: str | None`, `max_price: float | None`). `agent.py::run_agent` now calls it through `mcp_client.call_tool("search_listings", {...})` instead of importing it from `tools.py`. Nothing behaved differently afterwards. I ran four queries both the direct way and through MCP and the returns were exactly equal (`==`). That included the no-match case, which still comes back as `[]` and not `None`, and listings with `brand: None`, where the null survived the JSON round trip. The only visible cost is speed: every call starts the server process, asks, and stops it again.
 
+### Failure modes
+
+Each failure was triggered on purpose, one at a time. The output below is what the agent said.
+
+**1. Empty search** — `python app.py ask 'sequined astronaut ballgown size XXS under $5'`
+
+```
+  Nothing matched 'sequined astronaut ballgown' in size XXS under $5. Try one of these: raise your price limit above $5; drop the size XXS; use fewer or more general words (e.g. 'dress' instead of the full phrase).
+
+0 model calls this session
+```
+
+Already handled by the branch in `run_agent`. It stops before any model call and names each thing the user could change. No change needed.
+
+**2. Empty wardrobe** — `python app.py ask 'black combat boots under $60' --empty-wardrobe`
+
+```
+(running with an empty wardrobe)
+
+  Found:    Oversized Flannel Shirt — Plaid Red/Black — $22.0 on thredUp (good)
+  Price:    about typical — median $20 across 12 similar listings; cheapest similar: Mesh Long-Sleeve Top — Black at $15
+
+  Outfit:   Buy it. Woolrich is vintage quality that lasts forever, and $22 is a steal for that heritage.
+
+Outfit one: Throw it open over a fitted white ribbed tank top, paired with relaxed light-wash distressed jeans and chunky black combat boots. This leans into classic nineties grunge, balancing the heavy oversized flannel with fitted elements underneath.
+
+Outfit two: Belt it at the waist like a mini shirt-dress with sheer black tights and knee-high leather riding boots. ...
+```
+
+No crash and no empty string. `suggest_outfit` gives general pairing advice instead of naming owned pieces. No change needed. The run did show two other problems, though, which are not failures of the empty-wardrobe handling: a search for "combat boots" picked a flannel shirt, because "black" was the only word that matched, and the outfit text opened with a buy/skip verdict ("Buy it.") that the prompt doesn't ask for.
+
+**3. Model unavailable** — one character of `GEMINI_API_KEY` changed in `.env`, then a query not asked before: `python app.py ask 'cropped denim jacket for a fall picnic size M'`
+
+Before the fix:
+
+```
+ModelUnavailable: The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+```
+
+That came back in under a second, with no hang and no stack trace. But that was only luck: `app.py`'s last-resort `except Exception` in `main()` caught it. `run_agent` didn't handle the error at all. The session was thrown away, so the listing it had already found was never shown, and the process exited with code 1. Called from `run_eval.py` or `serve.py`, the same error would have counted as a crash or returned a 500.
+
+The fix: `run_agent` now catches `ModelUnavailable` (and `MCPError`, in case the search server doesn't answer). It puts a message in `session["error"]`, the same field the empty search uses, and returns the session normally. After the fix:
+
+```
+[5] suggest_outfit
+      →    failed: ModelUnavailable, stopping
+
+  The model couldn't be reached during suggest_outfit, so there's no outfit or fit card this time. The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com. (The search itself worked: it found '90s Track Jacket — Navy/White Stripe' for $45 on poshmark.)
+```
+
+It names the step that broke, says what to do (check or replace the key), and keeps what did work. The run now exits with code 0. The key was put back afterwards and `python test.py` passes again.
 
 ---
 
