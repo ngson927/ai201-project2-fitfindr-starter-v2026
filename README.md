@@ -662,26 +662,68 @@ It names the step that broke, says what to do (check or replace the key), and ke
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** one prompt, in `tools.py::create_fit_card`. I added one sentence and left the rest of the prompt as it was:
 
-**Which failure it was meant to fix:**
+```diff
+         f"exactly once each. {brand_rule} Be specific about the vibe. "
++        "Open the first sentence with something specific from how it's being "
++        "styled above or how wearing it feels, not with buying or finding it; "
++        "keep the price and the platform out of the first sentence. "
+         "Return only the caption."
+```
+
+Nothing else changed between the two runs: same scenarios, same tools, same loop, cache off for both, `TEMPERATURE = 0.9`.
+
+**Which failure it was meant to fix:** criterion 4 (revised), MISSED at 3/5. The diagnosis said the prompt's must-mention list (item, `$18`, platform) gets packed into one fixed opening, "Scored this … on depop for just $18". That frame appeared in 15 of 15 cards, so whether two openings collide came down to which adjective each card drew. The fix gives the first sentence a different job and moves the price and platform out of it.
 
 ### Run Log — After
 
+`python run_eval.py --label after`: 90 model calls, no crashes. Full report: [results/run_2026-10-13_1856_after.md](results/run_2026-10-13_1856_after.md), raw sessions in the `.json` next to it. Scored with `python score_run.py results/run_2026-10-13_1856_after.json`, using the criteria as revised in [criteria.md](criteria.md). For criterion 5, Try *n* is phrasing *n* on `vintage jacket`.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Item id is the same from search to fit card | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card: 2–4 sentences, `$NN` and platform once each, unique first five words *(revised)* | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Search respects a $30 ceiling across five phrasings, on `vintage jacket` *(revised)* | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+**Before and after, side by side**, both scored with the revised criteria. Before uses the run above, re-scored with the five-word rule for criterion 4 and re-measured on `vintage jacket` for criterion 5.
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+| Criterion | Target | Before | After |
+|---|---|---|---|
+| 1. Matching query completes | 4 of 5 | PASS PASS PASS PASS PASS — MET (5/5) | PASS PASS PASS PASS PASS — MET (5/5) |
+| 2. Impossible query stops early | 5 of 5 | PASS PASS PASS PASS PASS — MET (5/5) | PASS PASS PASS PASS PASS — MET (5/5) |
+| 3. Item id carried through | 5 of 5 | PASS PASS PASS PASS PASS — MET (5/5) | PASS PASS PASS PASS PASS — MET (5/5) |
+| 4. Fit card *(revised)* | 4 of 5 | FAIL PASS PASS FAIL PASS — **MISSED (3/5)** | PASS PASS PASS PASS PASS — **MET (5/5)** |
+| 5. Price ceiling *(revised)* | 4 of 5 | PASS PASS PASS PASS PASS — MET (5/5) | PASS PASS PASS PASS PASS — MET (5/5) |
 
+**Real output, criterion 4 after the change.** All five cards from `tools.py::create_fit_card`, scored by `score_run.py::c4_all`:
 
+```
+try 1: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='balancing that ultraloose denim with'
+try 2: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='balancing this fitted little butterfly'
+try 3: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='balancing a fitted silhouette with'
+try 4: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='balancing this sweet little butterfly'
+try 5: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='balancing this pastel butterfly tee'
+```
+
+Try 4 in full: "Balancing this sweet little butterfly tee with baggy dark wash denim and chunky sneakers gives me all the nostalgic streetwear vibes. I scored this gem on depop for just $18, and the fit is honestly perfection. It's quickly becoming my go-to piece for effortless daily outfits."
+
+**Did it help, and how do I know:** It helped the criterion: 3/5 became 5/5, and the other four rows stayed at 5/5. But it moved the template rather than removing it, and the criterion is too weak to see that.
+
+Across the 15 cards each run produced for the `vintage graphic tee` query (criteria 1, 3 and 4):
+
+| | Before | After |
+|---|---|---|
+| Price and platform both in sentence 1 | 15 / 15 | 0 / 15 |
+| Says "for just/only $18" | 14 / 15 | 15 / 15 |
+| Most common first word | "Score"/"Scored", 10 / 15 | "Balancing", 9 / 15 |
+| Five-word openings that repeat | 3 pairs | none |
+
+The new prompt tells the model to open with "something specific from how it's being styled above". Every one of the 15 outfit suggestions, in both runs, contains the word "balances" (e.g. "The fitted baby tee balances the loose jeans"). In the after-run, 9 of the cards built from those suggestions open with "Balancing". So the model swapped one stock opening for another, and the purchase frame "for just $18" just moved to sentence 2.
+
+The five-word rule passes these because "balancing this fitted little butterfly" and "balancing this sweet little butterfly" differ in their fourth word. Comparing the first two words instead would fail most of them. The measured improvement is real, but the problem underneath, a caption with a fixed shape, is still there one sentence later.
 
 ---
 
