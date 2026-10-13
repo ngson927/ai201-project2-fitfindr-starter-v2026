@@ -417,7 +417,34 @@ Declared after the unit 4 write-up and before building any of them. They're buil
 
 **Plan:** register `compare_prices` on the server in `mcp_server.py`, next to `search_listings`, with a description and typed input (`item: dict`, one listing dict). The `compare_prices` step in `agent.py::run_agent` will call it through `mcp_client.call_tool`. The trace step will be named `compare_prices (via MCP)`. Proof: `python mcp_client.py` lists both tools, direct and MCP returns compare equal for the same items, and a `--trace` run shows both MCP calls.
 
-**Result:** _(filled in after it's built)_
+**Result:** Built. `mcp_server.py` now registers `compare_prices(item: dict) -> dict` next to `search_listings`. The description gives the units, the ±15% rule and the empty case (`comparable_count 0`, `median_price null`, `cheaper []`). The `compare_prices` step in `agent.py::run_agent` calls it through `call_tool("compare_prices", {"item": ...})` and no longer imports it from `tools.py`.
+
+What changed: nothing in behaviour. I called it both ways for all 40 listings, and all 40 returns were equal (`==`). The no-comparables case also comes back intact over MCP, checked with a made-up item, because no real listing hits it. `python mcp_client.py` now lists:
+
+```
+  search_listings
+    - description: string
+    - size: string  (optional)
+    - max_price: number  (optional)
+  compare_prices
+    - item: object
+```
+
+A run that goes through both MCP tools (`python app.py ask 'graphic tee size XL under $60' --trace`, from the final run log [results/run_2026-10-13_1917_stretch.md](results/run_2026-10-13_1917_stretch.md)):
+
+```
+[2] search_listings (via MCP)
+      in:  {'description': 'graphic tee', 'size': 'XL', 'max_price': 60.0}
+      out: [] (empty)
+      →    branch: empty, retrying once without the size
+[3] search_listings (via MCP) — retry without size XL
+      ...
+[5] compare_prices (via MCP)
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: below typical, median $21.5 across 14 comparable
+```
+
+In that final run, all 50 tries that reached the price check went through `compare_prices (via MCP)`, with no crashes and no `MCPError`.
 
 #### Stretch 6: Retry with looser constraints
 
@@ -425,7 +452,50 @@ Declared after the unit 4 write-up and before building any of them. They're buil
 
 **How it will be shown:** a diagnostic scenario, `graphic tee size XL under $60`. With the size it matches nothing; without it, 6 listings. It runs in a final full run log, together with criterion 2's impossible query, which must still stop before `suggest_outfit` (nothing is under $5 even without the size).
 
-**Result:** _(filled in after it's built)_
+**Result:** Built, in `agent.py::run_agent`, as a new `retry_without_size` step. It runs only when the first search is empty *and* the query had a size, and `session["dropped_constraint"]` makes sure it runs at most once. Price and keywords are never loosened. The final run log ([results/run_2026-10-13_1917_stretch.md](results/run_2026-10-13_1917_stretch.md)) shows both outcomes:
+
+**Retry finds something**, scenario `retry without size`, 5 of 5 tries identical. The constraint dropped was the size, XL:
+
+```
+[1] parse_query
+      in:  graphic tee size XL under $60
+      out: {'description': 'graphic tee', 'size': 'XL', 'max_price': 60.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'graphic tee', 'size': 'XL', 'max_price': 60.0}
+      out: [] (empty)
+      →    branch: empty, retrying once without the size
+[3] search_listings (via MCP) — retry without size XL
+      in:  {'description': 'graphic tee', 'size': None, 'max_price': 60.0}
+      out: 6 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Mesh Long-Sleeve Top — Black … +3 more
+      →    dropped: size
+[4] select
+      in:  6 results
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    first result
+[5] compare_prices (via MCP)
+[6] suggest_outfit
+[7] create_fit_card
+
+selection_note: Nothing came up in size XL, so I searched again without the size filter. Check the size on this listing.
+dropped_constraint: size
+```
+
+**Retry finds nothing**, criterion 2's impossible query, 5 of 5 tries identical. It still stops before `suggest_outfit`, so criterion 2 stayed MET 5/5. The message no longer suggests dropping a size it has already dropped:
+
+```
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, retrying once without the size
+[3] search_listings (via MCP) — retry without size XXS
+      in:  {'description': 'designer ballgown', 'size': None, 'max_price': 5.0}
+      out: [] (empty)
+      →    dropped: size, still empty, stopping
+
+error: Nothing matched 'designer ballgown' in size XXS under $5. I also searched without the size XXS and still found nothing. Try one of these: raise your price limit above $5; use fewer or more general words (e.g. 'dress' instead of the full phrase).
+```
+
+What changed: an empty search with a size now costs one more MCP call. The empty-search trace grows from 2 steps to 3, which is why the Empty search trace under Loop Trace (captured before this was built) is shorter than this one. A query with no size behaves exactly as before. In the final run, criteria 1–5 were all MET 5/5 again, scored with `python score_run.py results/run_2026-10-13_1917_stretch.json`.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
@@ -657,7 +727,7 @@ no ceiling: 10 results, 6 over $30, max $75
 
 The empty run stops after two steps and makes 0 model calls. The happy path runs all six steps.
 
-**On the MCP move:** `search_listings` is registered on a FastMCP server in `mcp_server.py`, under the same name and with the same typed inputs as in the Tool Inventory (`description: str`, `size: str | None`, `max_price: float | None`). `agent.py::run_agent` now calls it through `mcp_client.call_tool("search_listings", {...})` instead of importing it from `tools.py`. Nothing behaved differently afterwards. I ran four queries both the direct way and through MCP and the returns were exactly equal (`==`). That included the no-match case, which still comes back as `[]` and not `None`, and listings with `brand: None`, where the null survived the JSON round trip. The only visible cost is speed: every call starts the server process, asks, and stops it again. Both test runs then went through MCP: 50 searches each, every one shown as `search_listings (via MCP)` in the trace, with no `MCPError`. Every query returned the same listing ids on all five of its tries, and the queries both runs share returned the same ids before and after.
+**On the MCP move:** _(this is about the unit's required move, `search_listings`; `compare_prices` followed later as Stretch 5)_ `search_listings` is registered on a FastMCP server in `mcp_server.py`, under the same name and with the same typed inputs as in the Tool Inventory (`description: str`, `size: str | None`, `max_price: float | None`). `agent.py::run_agent` now calls it through `mcp_client.call_tool("search_listings", {...})` instead of importing it from `tools.py`. Nothing behaved differently afterwards. I ran four queries both the direct way and through MCP and the returns were exactly equal (`==`). That included the no-match case, which still comes back as `[]` and not `None`, and listings with `brand: None`, where the null survived the JSON round trip. The only visible cost is speed: every call starts the server process, asks, and stops it again. Both test runs then went through MCP: 50 searches each, every one shown as `search_listings (via MCP)` in the trace, with no `MCPError`. Every query returned the same listing ids on all five of its tries, and the queries both runs share returned the same ids before and after.
 
 ### Failure modes
 

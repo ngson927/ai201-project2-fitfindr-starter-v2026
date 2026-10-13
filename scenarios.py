@@ -81,6 +81,16 @@ SCENARIOS = [
         "criterion": 5,
     },
     {
+        # Stretch 6 — a search that's empty only because of the size. "graphic
+        # tee" under $60 matches 6 listings, none in XL, so the agent should
+        # retry once without the size and carry on. Diagnostic, not one of
+        # the five.
+        "name": "retry without size",
+        "query": "graphic tee size XL under $60",
+        "wardrobe": "example",
+        "criterion": None,
+    },
+    {
         # A user with nothing saved. One of unit 4's three failure modes.
         "name": "empty wardrobe",
         "query": "denim jacket under $50",

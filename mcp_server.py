@@ -60,6 +60,7 @@ works with a direct call, and **a documented failure earns the point in full.**
 from mcp.server.fastmcp import FastMCP
 
 from tools import search_listings as _search_listings_impl
+from tools import compare_prices as _compare_prices_impl
 
 # log_level="WARNING" keeps the server from printing an INFO line for every
 # request. Without it your terminal fills with "Processing request of type
@@ -107,6 +108,27 @@ def search_listings(
 # are not optional here. `description: str` becomes a required string;
 # `max_price: float | None = None` becomes an optional number. Getting these
 # wrong is the most common reason a call is rejected.
+
+
+@mcp.tool()
+def compare_prices(item: dict) -> dict:
+    """
+    Say whether one secondhand clothing listing is a good price, compared with
+    similar listings in the same data: same category, at least one shared style
+    tag, excluding the item itself. Does not call a model.
+
+    Input: `item` — one listing object exactly as `search_listings` returns
+    it; it must have id, price (US dollars), category and style_tags (list).
+
+    Returns an object with: item_price (float, US dollars), comparable_count
+    (int), median_price (float, US dollars, the median of the comparables),
+    verdict ("below typical" / "about typical" / "above typical", i.e. more
+    than 15% under, within 15% of, or more than 15% over the median) and
+    cheaper (up to 3 comparable listing objects that cost less, cheapest first).
+    When there are no comparables it returns comparable_count 0, median_price
+    null, cheaper [] and verdict "no comparables" — never an error.
+    """
+    return _compare_prices_impl(item)
 
 
 if __name__ == "__main__":

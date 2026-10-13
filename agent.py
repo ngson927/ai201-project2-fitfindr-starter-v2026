@@ -17,7 +17,7 @@ import re
 
 import config
 import trace
-from tools import suggest_outfit, create_fit_card, compare_prices
+from tools import suggest_outfit, create_fit_card
 from mcp_client import call_tool, MCPError
 from generate import ModelUnavailable
 
@@ -43,7 +43,9 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "parsed": {},                # description / size / max_price you pulled out of it
         "search_results": [],        # everything search_listings returned
         "selected_item": None,       # the one you chose — goes into suggest_outfit
-        "selection_note": None,      # set when the fair-condition branch picked another item
+        "selection_note": None,      # set when the fair-condition branch picked another item,
+                                     # or when the retry dropped the size
+        "dropped_constraint": None,  # "size" when an empty search was retried without it
         "price_check": None,         # what compare_prices returned
         "wardrobe": wardrobe,        # the user's wardrobe
         "outfit_suggestion": None,   # what suggest_outfit returned
@@ -135,15 +137,44 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                     "size": parsed["size"],
                     "max_price": parsed["max_price"],
                 })
-                # THE BRANCH: nothing found means stop here, before any model call.
+                # THE BRANCH: nothing found means stop here, before any model call
+                # — unless a size was given and hasn't been dropped yet, in which
+                # case retry once without it (stretch 6).
                 if not session["search_results"]:
-                    session["error"] = _no_results_message(parsed)
-                    next_step = "done"
+                    if parsed["size"] and session["dropped_constraint"] is None:
+                        next_step = "retry_without_size"
+                    else:
+                        session["error"] = _no_results_message(parsed)
+                        next_step = "done"
                 else:
                     next_step = "select"
                 trace.step("search_listings (via MCP)", inputs=str(parsed),
                            returned=session["search_results"],
-                           note="branch: empty, stopping" if next_step == "done" else "")
+                           note={"done": "branch: empty, stopping",
+                                 "retry_without_size": "branch: empty, retrying once without the size"}
+                           .get(next_step, ""))
+
+            elif next_step == "retry_without_size":
+                parsed = session["parsed"]
+                session["dropped_constraint"] = "size"
+                loosened = {**parsed, "size": None}
+                session["search_results"] = call_tool("search_listings", {
+                    "description": loosened["description"],
+                    "size": None,
+                    "max_price": loosened["max_price"],
+                })
+                if session["search_results"]:
+                    session["selection_note"] = (
+                        f"Nothing came up in size {parsed['size']}, so I searched again "
+                        f"without the size filter. Check the size on this listing."
+                    )
+                    next_step = "select"
+                else:
+                    session["error"] = _no_results_message(parsed, size_dropped=True)
+                    next_step = "done"
+                trace.step(f"search_listings (via MCP) — retry without size {parsed['size']}",
+                           inputs=str(loosened), returned=session["search_results"],
+                           note="dropped: size" + (", still empty, stopping" if next_step == "done" else ""))
 
             elif next_step == "select":
                 results = session["search_results"]
@@ -152,10 +183,14 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 better = _better_condition_alternative(results)
                 if better:
                     session["selected_item"] = better
-                    session["selection_note"] = (
+                    swap_note = (
                         f"Top match '{results[0]['title']}' is in fair condition, so I "
                         f"picked '{better['title']}' ({better['condition']} condition, "
                         f"also {better['category']}) instead."
+                    )
+                    # Keep the retry's note, if there is one, ahead of this one.
+                    session["selection_note"] = " ".join(
+                        n for n in (session["selection_note"], swap_note) if n
                     )
                 else:
                     session["selected_item"] = results[0]
@@ -166,9 +201,12 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 next_step = "compare_prices"
 
             elif next_step == "compare_prices":
-                session["price_check"] = compare_prices(session["selected_item"])
+                # compare_prices also runs on the MCP server (stretch 5).
+                session["price_check"] = call_tool(
+                    "compare_prices", {"item": session["selected_item"]}
+                )
                 check = session["price_check"]
-                trace.step("compare_prices", inputs=session["selected_item"],
+                trace.step("compare_prices (via MCP)", inputs=session["selected_item"],
                            returned=f"{check['verdict']}, median ${check['median_price']} "
                                     f"across {check['comparable_count']} comparable"
                            if check["comparable_count"] else "no comparable listings")
@@ -284,7 +322,7 @@ def parse_query(query: str) -> dict:
     return {"description": description, "size": size, "max_price": max_price}
 
 
-def _no_results_message(parsed: dict) -> str:
+def _no_results_message(parsed: dict, size_dropped: bool = False) -> str:
     """Say what was searched and what the user could change — not just 'No results'."""
     if not parsed["description"]:
         return (
@@ -301,11 +339,15 @@ def _no_results_message(parsed: dict) -> str:
     changes = []
     if parsed["max_price"] is not None:
         changes.append(f"raise your price limit above ${parsed['max_price']:.0f}")
-    if parsed["size"]:
+    if parsed["size"] and not size_dropped:
         changes.append(f"drop the size {parsed['size']}")
     changes.append("use fewer or more general words (e.g. 'dress' instead of the full phrase)")
 
-    return f"Nothing matched {searched}. Try one of these: " + "; ".join(changes) + "."
+    retried = (
+        f" I also searched without the size {parsed['size']} and still found nothing."
+        if size_dropped else ""
+    )
+    return f"Nothing matched {searched}.{retried} Try one of these: " + "; ".join(changes) + "."
 
 
 # ── running it directly ───────────────────────────────────────────────────────
