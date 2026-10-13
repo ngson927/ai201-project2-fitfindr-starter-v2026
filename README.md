@@ -411,7 +411,7 @@ Declared after the unit 4 write-up and before building any of them. They're buil
 
 **How it will be measured:** a third full run, `python run_eval.py --label after2`, logged in the same table format. Criterion 4 already passes 5/5, so that table can't show this change working. The measure, declared now and before the run: across the 15 graphic-tee cards (criteria 1, 3 and 4), **the most common first word opens at most 5 of the 15** (it was 9 of 15 after the first change). Also, all five rows must stay MET. If the count doesn't drop, or a row drops, I'll report that it didn't help.
 
-**Result:** _(filled in after the run)_
+**Result:** Built and measured. The declared measure was met: the most common first word went from 9 of 15 cards to 3 of 15, and all five rows stayed MET in a third run log. The full write-up, the run log and an honest note on what it didn't fix are under The Improvement → [Second improvement (Stretch 4)](#second-improvement-stretch-4-the-borrowed-opening).
 
 #### Stretch 5: A second tool on MCP, `compare_prices`
 
@@ -783,6 +783,61 @@ The new prompt tells the model to open with "something specific from how it's be
 
 The five-word rule passes these because "balancing this fitted little butterfly" and "balancing this sweet little butterfly" differ in their fourth word. Comparing the first two words instead would fail most of them. The measured improvement is real, but the problem underneath, a caption with a fixed shape, is still there one sentence later.
 
+### Second improvement (Stretch 4): the borrowed opening
+
+**What I changed:** one prompt, again in `tools.py::create_fit_card`. The opening instruction from the first improvement was replaced; nothing else in the prompt, the tools or the loop changed:
+
+```diff
+-        "Open the first sentence with something specific from how it's being "
+-        "styled above or how wearing it feels, not with buying or finding it; "
+-        "keep the price and the platform out of the first sentence. "
++        "Open the first sentence with one concrete detail (a specific piece "
++        "it's worn with, a colour, or an occasion), described in your own "
++        "words: don't reuse phrases from the styling notes above, and don't "
++        "open with buying or finding it. Keep the price and the platform out "
++        "of the first sentence. "
+```
+
+**Which failure it was meant to fix:** the one "Did it help" found above. "Open with something from how it's being styled above" made the model copy the outfit's "balances the loose jeans" line, so 9 of 15 cards opened "Balancing…". The measure was declared in Stretch 4 before the run: the most common first word across the 15 graphic-tee cards opens at most 5 of them, and all five rows stay MET.
+
+#### Run Log — After 2
+
+`python run_eval.py --label after2`: 90 model calls, no crashes. Full report: [results/run_2026-10-13_1909_after2.md](results/run_2026-10-13_1909_after2.md). Scored with `python score_run.py results/run_2026-10-13_1909_after2.json`, using the same revised criteria as Run Log — After.
+
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Item id is the same from search to fit card | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card: 2–4 sentences, `$NN` and platform once each, unique first five words *(revised)* | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Search respects a $30 ceiling across five phrasings, on `vintage jacket` *(revised)* | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+**Real output, criterion 4.** All five cards from `tools.py::create_fit_card`, scored by `score_run.py::c4_all`:
+
+```
+try 1: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='scuffed black combat boots paired'
+try 2: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='tucking this little pastel butterfly'
+try 3: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='sliding into those baggy dark'
+try 4: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='swapping my usual oversized hoodies'
+try 5: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='tucked into wideleg khaki trousers'
+```
+
+Try 1 in full: "Scuffed black combat boots paired with this little butterfly graphic top instantly give off the most nostalgic 2000s mall-rat energy. I scored the baby tee on depop for just $18, and it’s become my favorite piece for adding a touch of soft pink to grungier outfits."
+
+**Did it help, and how do I know:** Yes, on what it targeted. The most common first word went from 9 of 15 cards to 3 of 15, under the limit of 5 declared before the run, and all five rows stayed MET.
+
+Across the 15 graphic-tee cards in each run:
+
+| | Before | After | After 2 |
+|---|---|---|---|
+| Most common first word | "Score"/"Scored", 10 / 15 | "Balancing", 9 / 15 | "Paired"/"Swapping", 3 / 15 each |
+| Distinct first words | 5 | 6 | 10 |
+| Five-word openings that repeat | 3 pairs | none | none |
+| Price and platform both in sentence 1 | 15 / 15 | 0 / 15 | 0 / 15 |
+| Says "for just/only $18" | 14 / 15 | 15 / 15 | 15 / 15 |
+
+It didn't fix everything. Sentence 2 is still a fixed purchase line, "I scored/snagged it on depop for just $18", in 15 of 15 cards, because neither change touched it. Some stock phrases also repeat across cards: "dreamiest" appears in 3 of the 5 criterion 4 cards, and "mall-rat energy" in 2. The opening is now varied, and the sameness has moved to the middle of the caption.
+
 ---
 
 ## What's Still Broken
@@ -793,9 +848,9 @@ The five-word rule passes these because "balancing this fitted little butterfly"
 
 **No criterion is still missed.** After the prompt change, all five rows of Run Log — After are MET. That isn't the same as nothing being broken. These are the problems I know about, starting with the one my own run log hides.
 
-**1. The fit card still has a fixed shape. Criterion 4 passes, but it's too weak to see it.** The prompt change moved the stock opening rather than removing it. 9 of 15 cards now open with "Balancing…", lifted from the "balances the loose jeans" line in every outfit suggestion, and 15 of 15 still say "for just/only $18" in sentence 2.
-- *What I'd do next:* first tighten the measurement, then make the fix. On the measurement side, add to criterion 4 that no first word opens more than 2 of the 5 cards. That is checkable, and the after-run would fail it (5 of 5 open with "Balancing"). On the fix side, stop handing `create_fit_card` the outfit's reasoning sentence, so there's no ready-made phrase for the opening to copy.
-- *Why I stopped:* this unit asks for one change, measured properly. A second prompt change on top of the first would leave me unable to say which one moved the number. The tighter criterion would also need a fresh before-run against it.
+**1. The fit card still has a fixed shape, in the middle now.** The two prompt changes fixed the opening: in After 2 the most common first word opens 3 of 15 cards (it was 10 of 15 before). The second sentence is still a stock purchase line, "I scored/snagged it on depop for just $18", in 15 of 15 cards. Stock phrases also repeat ("dreamiest" in 3 of 5 cards, "mall-rat energy" in 2). Criterion 4 can't see any of this; it only checks the opening.
+- *What I'd do next:* add a criterion on the purchase line, for example "fewer than 3 of 5 cards contain 'for just $NN'". Then let the prompt place the price anywhere, instead of asking for it "exactly once" alongside the platform, which invites one compact line that does both.
+- *Why I stopped:* I'd made two changes to this prompt already and measured each one separately. A third would need its own criterion, and the five-word rule criterion 4 uses now was itself added after I'd seen results. So the next fit-card criterion should be written before its run, not after.
 
 **2. Criterion 3 can't fail on the query it uses.** The top result for `vintage graphic tee under $30` is in excellent condition, so the fair-condition swap never runs, and `search_results[0] == selected_item` is guaranteed. When the swap does run, the criterion as written would wrongly call it a FAIL.
 - *What I'd do next:* compare `selected_item` against the ids going into `suggest_outfit` and `create_fit_card`, and add a scenario whose top match is in fair condition.

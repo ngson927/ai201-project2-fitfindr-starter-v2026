@@ -270,9 +270,11 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         "description. Mention the item, its price written as "
         f"${new_item['price']:.0f}, and the platform ({new_item['platform']}) "
         f"exactly once each. {brand_rule} Be specific about the vibe. "
-        "Open the first sentence with something specific from how it's being "
-        "styled above or how wearing it feels, not with buying or finding it; "
-        "keep the price and the platform out of the first sentence. "
+        "Open the first sentence with one concrete detail (a specific piece "
+        "it's worn with, a colour, or an occasion), described in your own "
+        "words: don't reuse phrases from the styling notes above, and don't "
+        "open with buying or finding it. Keep the price and the platform out "
+        "of the first sentence. "
         "Return only the caption."
     )
     return generate(prompt).strip()
