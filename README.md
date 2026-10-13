@@ -387,19 +387,103 @@ What it changed: on the second run `suggest_outfit` received a wardrobe with one
      `python run_eval.py --label before` runs everything and writes the table
      into results/. Paste it here and fill in the verdicts. -->
 
+Run with `python run_eval.py --label before`: every scenario in `scenarios.py`, five tries each, cache off, `TEMPERATURE = 0.9`. It made 90 model calls and none crashed. The full report is in [results/run_2026-10-13_1847_before.md](results/run_2026-10-13_1847_before.md), with the raw sessions next to it in the `.json` file. Each try was marked by `python score_run.py results/run_2026-10-13_1847_before.json`. That script applies each criterion from `criteria.md` exactly as written:
+
+1. **Criterion 1:** no error, a non-empty `fit_card`, and `search_listings`, `suggest_outfit` and `create_fit_card` all present in the trace.
+2. **Criterion 2:** `error` set, `outfit_suggestion` and `fit_card` both None, no `suggest_outfit` in the trace, and the message names the price, the size and the words.
+3. **Criterion 3:** four ids compared: `search_results[0]`, `selected_item`, and the `[id]` the trace shows going into `suggest_outfit` and into `create_fit_card`.
+4. **Criterion 4:** sentences counted as `[.!?]` followed by a space or the end; `$18` and `depop` each counted, case-insensitive; whole first sentence compared across the five cards.
+5. **Criterion 5:** every result in `search_results` has a price of 30 or less.
+
+Criterion 5 counts *phrasings*, so Try *n* in its row is phrasing *n* (`under $30`, `below $30`, `less than 30 dollars`, `max $30`, `$30 or less`). Each phrasing ran five times and gave the same result all five times, as expected, because the search doesn't call the model.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Item id is the same from search to fit card | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card: 2–4 sentences, `$NN` and platform once each, unique opening | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Search respects a $30 ceiling across five phrasings | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
+The model-backed rows really were re-run: the 15 fit cards from criteria 1, 3 and 4 are all different texts. Criteria 4 and 5 turned out to be measuring the wrong thing, though. See Verdicts and Diagnoses below.
+
+**Real output from one try**, pasted as text, naming the file and function that produced it:
+
+**Criterion 1**, try 1. Trace from `trace.py::step`, called in `agent.py::run_agent`. Fit card from `tools.py::create_fit_card`.
 
 ```
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+[3] select
+      in:  10 results
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    first result
+[4] compare_prices
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: below typical, median $21.5 across 14 comparable
+[5] suggest_outfit
+      in:  [lst_002] Y2K Baby Tee — Butterfly Print + 10 wardrobe items
+      out: Outfit One: Pair the Y2K Baby Tee — Butterfly Print with your baggy straight-leg jeans, dark wash and vintage …
+[6] create_fit_card
+      in:  outfit (625 chars) + [lst_002] Y2K Baby Tee — Butterfly Print
+      out: Scored this little butterfly baby tee on depop for just $18, and it’s officially my new favorite thing in my c…
 
+fit_card: Scored this little butterfly baby tee on depop for just $18, and it’s officially my new favorite thing in my closet. I’ve been living in fitted tees paired with baggy denim for that ultimate nostalgic streetwear vibe, but it looks just as good dressed down with khaki trousers and chunky boots. Such a dreamy little vintage find!
+```
+
+**Criterion 2**, try 1. The branch in `agent.py::run_agent`; the message comes from `agent.py::_no_results_message`.
+
+```
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping
+
+error: Nothing matched 'designer ballgown' in size XXS under $5. Try one of these: raise your price limit above $5; drop the size XXS; use fewer or more general words (e.g. 'dress' instead of the full phrase).
+fit_card: None
+```
+
+**Criterion 3**, try 1. Ids read from the session returned by `agent.py::run_agent` and from its trace (`score_run.py::c3`).
+
+```
+[5] suggest_outfit
+      in:  [lst_002] Y2K Baby Tee — Butterfly Print + 10 wardrobe items
+[6] create_fit_card
+      in:  outfit (669 chars) + [lst_002] Y2K Baby Tee — Butterfly Print
+
+{'search_results[0]': 'lst_002', 'selected_item': 'lst_002', 'trace suggest_outfit': 'lst_002', 'trace create_fit_card': 'lst_002'}
+```
+
+**Criterion 4**, all five cards from `tools.py::create_fit_card`, because the uniqueness check compares them with each other. These are the scorer's lines (`score_run.py::c4_all`):
+
+```
+try 1: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='scored this little butterfly tee on depop for just $18 and i am so obs'
+try 2: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='found this little y2k baby tee — butterfly print on depop for just $18'
+try 3: PASS  sentences=3 $18x1 depopx1 unique_opening=True opening='score this dreamy little butterfly tee for just $18 on depop and i’m o'
+try 4: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='scored this little butterfly tee on depop for just $18 and i’m so obse'
+try 5: PASS  sentences=2 $18x1 depopx1 unique_opening=True opening='scored this adorable little butterfly baby tee on depop for just $18 a'
+```
+
+Try 2 in full: "Found this little Y2K Baby Tee — Butterfly Print on depop for just $18 and I am completely obsessed with the nostalgic pink and purple graphic. I love styling it with baggy denim for that ultimate 2000s streetwear vibe or dressing it down with structured trousers. It’s seriously the easiest way to add a little retro sweetness to any outfit."
+
+**Criterion 5**, phrasing `below $30`, try 1. `agent.py::parse_query` followed by `search_listings` over MCP (`mcp_server.py::search_listings`).
+
+```
+[1] parse_query
+      in:  graphic tee below $30
+      out: {'description': 'graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'graphic tee', 'size': None, 'max_price': 30.0}
+      out: 6 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Mesh Long-Sleeve Top — Black … +3 more
+
+search_results prices: [('Y2K Baby Tee — Butterfly Print', 18.0), ('Graphic Tee — 2003 Tour Bootleg Style', 24.0), ('Mesh Long-Sleeve Top — Black', 15.0), ('Vintage Band Tee — Faded Grey', 19.0), ('Low-Rise Cargo Pants — Khaki', 27.0), ('Vintage Graphic Hoodie — Faded Black', 26.0)]
 ```
 
 ---

@@ -203,6 +203,16 @@ def write_report(rows, args):
 
     path.write_text("\n".join(lines), encoding="utf-8")
 
+    # The same tries, raw, next to the report. The markdown keeps only titles
+    # and counts; scoring a criterion about ids or prices needs the sessions.
+    import json
+    raw = [{"scenario": r["scenario"],
+            "tries": [{k: v for k, v in t.items() if k != "traceback"} | {
+                "session": {k: v for k, v in (t["session"] or {}).items() if k != "wardrobe"}}
+                for t in r["tries"]]}
+           for r in rows]
+    path.with_suffix(".json").write_text(json.dumps(raw, indent=1, default=str), encoding="utf-8")
+
     import generate
 
     print(f"Wrote {path.relative_to(config.ROOT)}")

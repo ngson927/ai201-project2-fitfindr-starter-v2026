@@ -29,24 +29,62 @@ SCENARIOS = [
         "criterion": 2,
     },
     {
+        # Criterion 3 — state. Same query as criterion 1; what's checked is the
+        # listing id in search_results[0], selected_item, and the ids the trace
+        # shows going into suggest_outfit and create_fit_card.
+        "name": "item id carried through the session",
+        "query": "vintage graphic tee under $30",
+        "wardrobe": "example",
+        "criterion": 3,
+    },
+    {
+        # Criterion 4 — the fit card. The SAME item five times, so the five
+        # cards can be compared with each other (first sentences must differ).
+        "name": "fit card: sentences, price, platform, opening",
+        "query": "vintage graphic tee under $30",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    # Criterion 5 — one scenario per phrasing of the same $30 ceiling. The
+    # criterion counts phrasings, so each phrasing is one "try" in the README
+    # row; the search doesn't call the model, so its five runs should agree.
+    {
+        "name": "price ceiling: 'under $30'",
+        "query": "graphic tee under $30",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
+        "name": "price ceiling: 'below $30'",
+        "query": "graphic tee below $30",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
+        "name": "price ceiling: 'less than 30 dollars'",
+        "query": "graphic tee less than 30 dollars",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
+        "name": "price ceiling: 'max $30'",
+        "query": "graphic tee max $30",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
+        "name": "price ceiling: '$30 or less'",
+        "query": "graphic tee $30 or less",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
         # A user with nothing saved. One of unit 4's three failure modes.
         "name": "empty wardrobe",
         "query": "denim jacket under $50",
         "wardrobe": "empty",
         "criterion": None,
     },
-    # TODO: add what your criteria 3, 4 and 5 need.
-    #
-    # Set "criterion" to the number in criteria.md that the scenario tests.
-    # "criterion": None means a diagnostic run — useful to have, but it isn't
-    # one of your five, and run_eval.py marks it as such in the table.
-    #
-    # For a state criterion, any normal query works — what you're checking is
-    # what ends up in the session, not what the user typed.
-    #
-    # For a fit-card criterion, you probably want the SAME query listed more
-    # than once, or several different items, depending on what your criterion
-    # actually says.
 ]
 
 WARDROBES = ("example", "empty")
