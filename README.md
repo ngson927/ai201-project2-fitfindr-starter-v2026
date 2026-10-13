@@ -222,6 +222,36 @@ wrong or unclear and got changed, and who decided what.
   original as `criteria.md` describes, and I'll write my own reasoning when I
   diagnose the results.
 
+### Unit 4
+
+Same setup. I pasted each milestone into Claude Code, and it did the work:
+- registered `search_listings` on MCP and wrote its description;
+- triggered the three failures and added the `ModelUnavailable`/`MCPError` handler;
+- added the trace calls and wrote the scenarios;
+- ran both tests, wrote `score_run.py`, and made the criteria revisions;
+- chose and made the one prompt change;
+- drafted this write-up.
+
+As in unit 3, the judgement calls below were Claude's. I'm recording them as that, not as my own.
+
+**Moment 3: a clean 5/5 sweep that didn't mean anything.**
+
+- *What I asked for:* Milestone 3, which was to run the before-test and fill in the run log.
+- *What came back:* All five criteria were MET 5/5. Before writing that down as a result, Claude checked whether each criterion *could* have failed, and two couldn't:
+  - **Criterion 5:** no `graphic tee` listing costs more than $30, so it would pass even with the price parser removed.
+  - **Criterion 4:** the unique-opening check counted "…and I am so obsessed" and "…and I'm so obsessed" as different openings.
+- *What changed:* both criteria were revised underneath the originals in `criteria.md`, with their targets unchanged. Criterion 4 now compares the first five words. Criterion 5 now uses `vintage jacket`, where 6 of 10 matches are over $30. Re-scored, criterion 4 became a real miss (3/5), and that miss is what the improvement targeted. The lesson I take from this: a row of PASS cells needs checking for whether it could have been FAIL before it counts as evidence.
+
+**Moment 4: an improvement that worked on paper.**
+
+- *What I asked for:* Milestone 5, which was to make one fix and re-run.
+- *What came back:* The prompt rewrite took criterion 4 from 3/5 to 5/5. Reading the 15 new cards turned up a new stock opening: 9 started "Balancing…". Claude traced it to the outfit suggestions, which contain "balances" in 15 of 15 runs.
+- *What changed:* nothing more in the code. One change per unit. Instead, "Did it help" says the template moved, and it's item 1 under What's Still Broken.
+
+Smaller decisions Claude made along the way:
+- **The raw-session dump.** `run_eval.py` now also writes each run's raw sessions as JSON. The markdown report kept only titles and counts, which isn't enough to score ids (criterion 3) or prices (criterion 5).
+- **The error handler.** On the bad-key test the agent seemed fine, because `app.py`'s catch-all printed the error. Claude added a real handler in `run_agent` anyway, because the session, including the item already found, was being thrown away.
+
 ---
 
 ## Stretch Features
@@ -599,7 +629,7 @@ no ceiling: 10 results, 6 over $30, max $75
 
 The empty run stops after two steps and makes 0 model calls. The happy path runs all six steps.
 
-**On the MCP move:** `search_listings` is registered on a FastMCP server in `mcp_server.py`, under the same name and with the same typed inputs as in the Tool Inventory (`description: str`, `size: str | None`, `max_price: float | None`). `agent.py::run_agent` now calls it through `mcp_client.call_tool("search_listings", {...})` instead of importing it from `tools.py`. Nothing behaved differently afterwards. I ran four queries both the direct way and through MCP and the returns were exactly equal (`==`). That included the no-match case, which still comes back as `[]` and not `None`, and listings with `brand: None`, where the null survived the JSON round trip. The only visible cost is speed: every call starts the server process, asks, and stops it again.
+**On the MCP move:** `search_listings` is registered on a FastMCP server in `mcp_server.py`, under the same name and with the same typed inputs as in the Tool Inventory (`description: str`, `size: str | None`, `max_price: float | None`). `agent.py::run_agent` now calls it through `mcp_client.call_tool("search_listings", {...})` instead of importing it from `tools.py`. Nothing behaved differently afterwards. I ran four queries both the direct way and through MCP and the returns were exactly equal (`==`). That included the no-match case, which still comes back as `[]` and not `None`, and listings with `brand: None`, where the null survived the JSON round trip. The only visible cost is speed: every call starts the server process, asks, and stops it again. Both test runs then went through MCP: 50 searches each, every one shown as `search_listings (via MCP)` in the trace, with no `MCPError`. Every query returned the same listing ids on all five of its tries, and the queries both runs share returned the same ids before and after.
 
 ### Failure modes
 
@@ -733,6 +763,24 @@ The five-word rule passes these because "balancing this fitted little butterfly"
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
 
+**No criterion is still missed.** After the prompt change, all five rows of Run Log — After are MET. That isn't the same as nothing being broken. These are the problems I know about, starting with the one my own run log hides.
+
+**1. The fit card still has a fixed shape. Criterion 4 passes, but it's too weak to see it.** The prompt change moved the stock opening rather than removing it. 9 of 15 cards now open with "Balancing…", lifted from the "balances the loose jeans" line in every outfit suggestion, and 15 of 15 still say "for just/only $18" in sentence 2.
+- *What I'd do next:* first tighten the measurement, then make the fix. On the measurement side, add to criterion 4 that no first word opens more than 2 of the 5 cards. That is checkable, and the after-run would fail it (5 of 5 open with "Balancing"). On the fix side, stop handing `create_fit_card` the outfit's reasoning sentence, so there's no ready-made phrase for the opening to copy.
+- *Why I stopped:* this unit asks for one change, measured properly. A second prompt change on top of the first would leave me unable to say which one moved the number. The tighter criterion would also need a fresh before-run against it.
+
+**2. Criterion 3 can't fail on the query it uses.** The top result for `vintage graphic tee under $30` is in excellent condition, so the fair-condition swap never runs, and `search_results[0] == selected_item` is guaranteed. When the swap does run, the criterion as written would wrongly call it a FAIL.
+- *What I'd do next:* compare `selected_item` against the ids going into `suggest_outfit` and `create_fit_card`, and add a scenario whose top match is in fair condition.
+- *Why I stopped:* it's a revision, not a fix, and it doesn't change the agent. I'd rather name it here than revise a third criterion in the same unit.
+
+**3. Search relevance, which no criterion covers.** `black combat boots under $60` selected an *Oversized Flannel Shirt*, because "black" was the only word that matched. `graphic tee` still returns *Low-Rise Cargo Pants*, because "tee" appears in their description (Moment 1 below, from unit 3). Every field scores the same in `tools.py::search_listings`, so one shared colour word can outrank the thing the user named.
+- *What I'd do next:* weight matches in `title`, `category` and `style_tags` above `description` and `colors`, and add a criterion that the selected item's category matches the noun in the query.
+- *Why I stopped:* none of my five criteria measure relevance, so there was no failing row to point a fix at. Changing the scoring would also change the inputs to every other criterion at once.
+
+**4. Smaller things I saw but didn't measure:**
+- `suggest_outfit` sometimes opens with a buy/skip verdict ("Buy it.") that its prompt doesn't ask for. I saw it once, in the empty-wardrobe run under Failure modes.
+- The price ceiling is inclusive for every phrasing, so "under $30" returns a $30 listing. That matches my Tool Inventory spec, but not what "under" means to most people.
+
 
 
 <!-- ═════════════════════════════════════════════════════════════════════
@@ -752,17 +800,17 @@ The five-word rule passes these because "balancing this fitted little butterfly"
 
      SUBMISSION CHECKLIST — unit 4
 
-       [ ] mcp_server.py exists with one tool registered
+       [x] mcp_server.py exists with one tool registered
            (or a written record of exactly where the rewire broke)
-       [ ] Run Log — Before, five criteria, five tries each
-       [ ] Real output pasted underneath, naming file and function
-       [ ] A verdict on every criterion
-       [ ] A diagnosis for every miss, naming a place AND a mechanism
-       [ ] Loop Trace, with the MCP call visible in it
-       [ ] All three failure modes triggered and handled
-       [ ] One improvement, with Run Log — After in the same format
-       [ ] What's Still Broken
-       [ ] At least four new commits
+       [x] Run Log — Before, five criteria, five tries each
+       [x] Real output pasted underneath, naming file and function
+       [x] A verdict on every criterion
+       [x] A diagnosis for every miss, naming a place AND a mechanism
+       [x] Loop Trace, with the MCP call visible in it
+       [x] All three failure modes triggered and handled
+       [x] One improvement, with Run Log — After in the same format
+       [x] What's Still Broken
+       [x] At least four new commits
        [ ] The SAME repository URL as last unit
 
      Do not delete and recreate this repository. Your commit history is what
