@@ -45,36 +45,38 @@ SCENARIOS = [
         "wardrobe": "example",
         "criterion": 4,
     },
-    # Criterion 5 — one scenario per phrasing of the same $30 ceiling. The
+    # Criterion 5 (revised in unit 4) — one scenario per phrasing of the same
+    # $30 ceiling, on "vintage jacket": with no ceiling it matches 6 listings
+    # over $30, so a missed phrasing shows. ("graphic tee" had none.) The
     # criterion counts phrasings, so each phrasing is one "try" in the README
     # row; the search doesn't call the model, so its five runs should agree.
     {
         "name": "price ceiling: 'under $30'",
-        "query": "graphic tee under $30",
+        "query": "vintage jacket under $30",
         "wardrobe": "example",
         "criterion": 5,
     },
     {
         "name": "price ceiling: 'below $30'",
-        "query": "graphic tee below $30",
+        "query": "vintage jacket below $30",
         "wardrobe": "example",
         "criterion": 5,
     },
     {
         "name": "price ceiling: 'less than 30 dollars'",
-        "query": "graphic tee less than 30 dollars",
+        "query": "vintage jacket less than 30 dollars",
         "wardrobe": "example",
         "criterion": 5,
     },
     {
         "name": "price ceiling: 'max $30'",
-        "query": "graphic tee max $30",
+        "query": "vintage jacket max $30",
         "wardrobe": "example",
         "criterion": 5,
     },
     {
         "name": "price ceiling: '$30 or less'",
-        "query": "graphic tee $30 or less",
+        "query": "vintage jacket $30 or less",
         "wardrobe": "example",
         "criterion": 5,
     },

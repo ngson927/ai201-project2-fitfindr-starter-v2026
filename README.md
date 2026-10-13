@@ -508,15 +508,42 @@ search_results prices: [('Y2K Baby Tee — Butterfly Print', 18.0), ('Graphic Te
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | **MET (5/5)** | All five tries had no `error`, a non-empty `fit_card`, and `search_listings`, `suggest_outfit` and `create_fit_card` in the trace. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | **MET (5/5)** | All five traces end after `search_listings (via MCP)` with `[] (empty)` → `branch: empty, stopping`. `outfit_suggestion` and `fit_card` stayed None, and the message names the price, the size and the words. |
+| 3 | Item id is the same from search to fit card | 5 of 5 | **MET (5/5)** | In every try, `search_results[0]`, `selected_item`, and the ids the trace shows going into `suggest_outfit` and `create_fit_card` were all `lst_002`. |
+| 4 | Fit card: 2–4 sentences, `$NN` and platform once each, unique opening | 4 of 5 | As written: MET (5/5). **Revised: MISSED (3/5)** | (a) and (b) held on all five: 2–3 sentences, `$18` once, `depop` once. Under the original whole-sentence rule all five openings counted as unique. Under the revised five-word rule ([criteria.md](criteria.md) §4), tries 1 and 4 both open "scored this little butterfly tee", so both fail: FAIL, PASS, PASS, FAIL, PASS. |
+| 5 | Search respects a $30 ceiling across five phrasings | 4 of 5 | As written: MET (5/5). **Revised: MET (5/5)** | Original (`graphic tee`): no result over $30 in any phrasing, but no `graphic tee` listing costs more than $30, so it couldn't have failed. Revised (`vintage jacket`, 6 of its 10 unfiltered matches over $30): every phrasing parsed `max_price=30.0` and returned 10 results with a top price of $30, in all five runs of each phrasing (output below). |
 
 **Diagnoses**
 
+**Criterion 4, the only real miss.** It happens in the **model's output**, and the cause is in the prompt in `tools.py::create_fit_card`. The prompt lists three things the caption must mention exactly once: the item, its price written as `$18`, and the platform. The model meets all three in the first sentence using one fixed frame: *"Scored this [little/cute/dreamy] butterfly tee on depop for just $18 and I'm obsessed…"*. Temperature 0.9 changes the adjective but not the frame. So whether two cards collide comes down to which adjective each one happens to draw, and in this run tries 1 and 4 both drew "little". The tool did what its spec says and the session passed the right item (criterion 3), so nothing upstream is wrong. The prompt gives the model a list of facts to fit in and no reason to open any other way.
 
+**The pattern.** This is not one unlucky pair; it shows up in every fit card the run produced. The same query was used for criteria 1, 3 and 4, which gives 15 cards in total:
+- **15 of 15** put both the price and the platform in sentence 1;
+- **14 of 15** say "for just $18" or "for only $18";
+- **10 of 15** open with "Score" or "Scored";
+- three five-word openings appear twice each across the 15: "scored this little butterfly baby", "scored this cute little butterfly" and "scored this little butterfly tee".
+
+Criteria 1 and 3 don't check the opening, so they passed anyway. It is one problem, in one place: the fit-card prompt sets the shape of the opening sentence.
+
+Measured on the after-run, the fix should show as more varied first words and the price and platform moving out of sentence 1. Parts (a) and (b) must keep passing.
+
+**Criterion 5, a broken measurement, not a miss.** With no listing over $30 among the `graphic tee` matches, the ceiling filter wasn't tested at all. The criterion was revised to a query that can fail (see [criteria.md](criteria.md) §5) and re-measured with the loop's own first two steps, `agent.py::parse_query` and then `search_listings` over MCP:
+
+```
+no ceiling: 10 results, 6 over $30, max $75
+'vintage jacket under $30'                 parsed={'description': 'vintage jacket', 'size': None, 'max_price': 30.0} results=10 max=$30 over=[] -> PASS PASS PASS PASS PASS
+'vintage jacket below $30'                 parsed={'description': 'vintage jacket', 'size': None, 'max_price': 30.0} results=10 max=$30 over=[] -> PASS PASS PASS PASS PASS
+'vintage jacket less than 30 dollars'      parsed={'description': 'vintage jacket', 'size': None, 'max_price': 30.0} results=10 max=$30 over=[] -> PASS PASS PASS PASS PASS
+'vintage jacket max $30'                   parsed={'description': 'vintage jacket', 'size': None, 'max_price': 30.0} results=10 max=$30 over=[] -> PASS PASS PASS PASS PASS
+'vintage jacket $30 or less'               parsed={'description': 'vintage jacket', 'size': None, 'max_price': 30.0} results=10 max=$30 over=[] -> PASS PASS PASS PASS PASS
+```
+
+`scenarios.py` now uses these five queries, so the after-run measures the revised version. One thing this turned up, which the criterion allows: "under $30" returns a listing priced exactly $30, because the ceiling is inclusive for every phrasing.
+
+**Were the other targets too low?** Partly, yes:
+- **Criterion 1** allowed one failure "for a bad moment from the model service". Across 90 model calls there wasn't one, so 4 of 5 left room that wasn't needed.
+- **Criterion 3** is the one I'd tighten. It compares `search_results[0]` against `selected_item`, and with this query that can't fail. The top result is in excellent condition, so the second branch (swap a fair-condition pick) never runs. Once that branch exists, `search_results[0]` is the wrong thing to compare: the selected item is *supposed* to differ from it when the swap fires. A tighter version would compare `selected_item["id"]` against the ids going into `suggest_outfit` and `create_fit_card`, and add a query whose top match is in fair condition, so the swap path is checked too.
 
 ---
 

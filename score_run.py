@@ -55,8 +55,16 @@ def first_sentence(text):
     return re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0].strip().lower()
 
 
-def c4_all(tries):
-    firsts = [first_sentence(t["session"].get("fit_card") or "") for t in tries]
+def first_words(text, n=5):
+    """Revised criterion 4: the opening is the first five words, case and
+    punctuation ignored, so "I am" vs "I'm" later on can't make two openings
+    count as different."""
+    return " ".join(re.sub(r"[^\w\s$]", "", text.lower().replace("’", "")).split()[:n])
+
+
+def c4_all(tries, revised=False):
+    opening = first_words if revised else first_sentence
+    firsts = [opening(t["session"].get("fit_card") or "") for t in tries]
     out = []
     for t, first in zip(tries, firsts):
         s = t["session"]
@@ -91,7 +99,11 @@ for crit in sorted(k for k in by_crit if k):
     for r in by_crit[crit]:
         print(f"-- {r['scenario']['name']}  [{r['scenario']['query']}]")
         tries = r["tries"]
-        results = c4_all(tries) if crit == 4 else [{1: c1, 2: c2, 3: c3, 5: c5}[crit](t) for t in tries]
+        if crit == 4:
+            original = c4_all(tries)
+            print("   original (whole first sentence):", " | ".join("PASS" if ok else "FAIL" for ok, _ in original))
+            print("   revised in unit 4 (first five words):")
+        results = c4_all(tries, revised=True) if crit == 4 else [{1: c1, 2: c2, 3: c3, 5: c5}[crit](t) for t in tries]
         for i, (ok, why) in enumerate(results, 1):
             print(f"   try {i}: {'PASS' if ok else 'FAIL'}  {why}")
         print("   row:", " | ".join("PASS" if ok else "FAIL" for ok, _ in results))

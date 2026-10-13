@@ -100,6 +100,20 @@ sentence, and two of five cards could open the same way by chance. 5 of 5
 would mean expecting a random process never to slip, and
 lower than 4 would mean my prompt isn't really doing its job.
 
+> **Revised in unit 4:** Part (c) changes; (a), (b) and the target stay. Each
+> card's **first five words**, lowercased and with punctuation dropped, match
+> no other card's first five words in the five. A card passes only if (a), (b)
+> and (c) all hold, and at least 4 of 5 cards pass.
+>
+> **Why revised:** comparing whole first sentences couldn't catch a repeated
+> opening. In the before-run, try 1 opened "Scored this little butterfly tee on
+> depop for just $18 and I am so obsessed…" and try 4 "Scored this little
+> butterfly tee on depop for just $18 and I'm so obsessed…". They differ only
+> at "I am" / "I'm", so both counted as unique. A reader scrolling past would
+> see the same caption twice. The first five words are the opening phrase a
+> reader actually sees, and two cards that share them read as the same
+> template. The original line is kept above; the target is unchanged.
+
 ---
 
 ## 5. The search respects the price ceiling, however it's phrased
@@ -122,6 +136,19 @@ parser pulls `max_price` out of the query first. If a phrasing slips past the
 regex, `max_price` stays None, the search runs with no ceiling, and listings up
 to $75 come back with no warning. I expect to cover the common forms but not
 every way a person might say it, so 4 of 5 rather than 5 of 5.
+
+> **Revised in unit 4:** The same five phrasings, applied to `vintage jacket`
+> instead of `graphic tee`: `vintage jacket under $30`, `vintage jacket below
+> $30`, `vintage jacket less than 30 dollars`, `vintage jacket max $30`,
+> `vintage jacket $30 or less`. Every listing in `session["search_results"]`
+> has a `price` of 30 or less, in at least 4 of the 5 phrasings.
+>
+> **Why revised:** the original query couldn't fail. `graphic tee` with no
+> ceiling at all matches 6 listings, and none of them costs more than $30.
+> So if the regex had missed the price completely, the results would have
+> been identical and the criterion would still pass. `vintage jacket` with no
+> ceiling matches 10 listings, 6 of them over $30 (up to $75), so a phrasing
+> the parser misses now shows up as a FAIL. The target is unchanged.
 
 ---
 
